@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  feeder-ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fly-overhead-feeder-ingestion
+    ports:
+      - "3006:3006"
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_URL=postgresql://postgres:postgres@db:5432/fly_overhead
+      - PORT=3006
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fly-overhead-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./logs:/usr/src/app/logs
+
+  # Optional: Redis for message queue
+  redis:
+    image: redis:7-alpine
+    container_name: fly-overhead-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - fly-overhead-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+networks:
+  fly-overhead-network:
+    external: true  # Use existing network from main service
+
+volumes:
+  redis-data:
+
