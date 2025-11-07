@@ -1,0 +1,47 @@
+{
+  "name": "@dhightnm/feeder-sdk",
+  "version": "1.0.0",
+  "description": "Plug-and-play SDK for connecting ADS-B feeders to fly-overhead service",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "adsb",
+    "aviation",
+    "feeder",
+    "piaware",
+    "dump1090",
+    "fly-overhead"
+  ],
+  "author": "Fly Overhead",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fly-overhead/feeder-service.git",
+    "directory": "packages/feeder-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/fly-overhead/feeder-service/issues"
+  },
+  "homepage": "https://github.com/fly-overhead/feeder-service#readme",
+  "dependencies": {
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+

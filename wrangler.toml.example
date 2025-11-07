@@ -1,0 +1,17 @@
+# Cloudflare Worker - wrangler.toml
+
+# Use this if deploying via Wrangler CLI
+
+name = "setup-redirect"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Routes
+routes = [
+  { pattern = "setup.fly-overhead.com/*", zone_name = "fly-overhead.com" }
+]
+
+# Environment variables (if needed)
+# [vars]
+# GITHUB_RAW_URL = "https://raw.githubusercontent.com/USERNAME/REPO/main/setup-public-feeder.sh"
+

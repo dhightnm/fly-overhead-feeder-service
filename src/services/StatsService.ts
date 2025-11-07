@@ -125,6 +125,151 @@ class StatsService {
   }
 
   /**
+   * Get data quality feedback for a feeder
+   * Provides actionable feedback on data quality
+   */
+  async getDataQualityFeedback(feederId: string): Promise<{
+    overall_score: number;
+    grade: string;
+    metrics: {
+      completeness: number;
+      accuracy: number;
+      timeliness: number;
+      coverage: number;
+    };
+    recommendations: string[];
+    recent_stats: {
+      last_24h: {
+        messages: number;
+        unique_aircraft: number;
+        avg_quality: number;
+      };
+      last_7d: {
+        messages: number;
+        unique_aircraft: number;
+        avg_quality: number;
+      };
+    };
+  }> {
+    try {
+      // Get recent stats
+      const stats24h = await postgresRepository.getFeederStatsLastNDays(feederId, 1);
+      const stats7d = await postgresRepository.getFeederStatsLastNDays(feederId, 7);
+
+      // Calculate metrics
+      const avgQuality24h = stats24h.length > 0 && stats24h[0].data_quality_score !== null
+        ? stats24h[0].data_quality_score
+        : null;
+      
+      const avgQuality7d = stats7d.length > 0
+        ? stats7d.reduce((sum, stat) => {
+            if (stat.data_quality_score !== null && stat.data_quality_score !== undefined) {
+              return sum + stat.data_quality_score;
+            }
+            return sum;
+          }, 0) / stats7d.filter(s => s.data_quality_score !== null).length
+        : null;
+
+      // Calculate completeness (how many fields are populated)
+      // This would ideally come from actual data analysis
+      const completeness = avgQuality24h !== null && avgQuality24h !== undefined
+        ? Math.min(100, (avgQuality24h / 100) * 100)
+        : 50;
+
+      // Calculate accuracy (based on data quality score)
+      const accuracy = avgQuality24h !== null && avgQuality24h !== undefined ? avgQuality24h : 50;
+
+      // Calculate timeliness (how recent is the data)
+      const feeder = await postgresRepository.getFeederById(feederId);
+      const minutesSinceLastSeen = feeder?.last_seen_at
+        ? Math.floor((Date.now() - new Date(feeder.last_seen_at).getTime()) / 60000)
+        : null;
+      
+      const timeliness = minutesSinceLastSeen !== null && minutesSinceLastSeen < 5
+        ? 100
+        : minutesSinceLastSeen !== null && minutesSinceLastSeen < 15
+        ? 80
+        : minutesSinceLastSeen !== null && minutesSinceLastSeen < 60
+        ? 60
+        : 30;
+
+      // Calculate coverage (unique aircraft per day)
+      const coverage = stats24h.length > 0 && stats24h[0].unique_aircraft > 0
+        ? Math.min(100, (stats24h[0].unique_aircraft / 100) * 100)
+        : 0;
+
+      // Overall score (weighted average)
+      const overallScore = Math.round(
+        (completeness * 0.3) +
+        (accuracy * 0.3) +
+        (timeliness * 0.2) +
+        (coverage * 0.2)
+      );
+
+      // Grade
+      const grade = overallScore >= 90
+        ? 'A'
+        : overallScore >= 80
+        ? 'B'
+        : overallScore >= 70
+        ? 'C'
+        : overallScore >= 60
+        ? 'D'
+        : 'F';
+
+      // Recommendations
+      const recommendations: string[] = [];
+      
+      if (completeness < 70) {
+        recommendations.push('Improve data completeness by ensuring all aircraft fields are populated');
+      }
+      if (accuracy !== undefined && accuracy < 70) {
+        recommendations.push('Check antenna positioning and signal quality for better accuracy');
+      }
+      if (timeliness < 60) {
+        recommendations.push('Ensure feeder is running continuously and check network connectivity');
+      }
+      if (coverage < 50) {
+        recommendations.push('Consider improving antenna height or location for better coverage');
+      }
+      if (recommendations.length === 0) {
+        recommendations.push('Your feeder is performing excellently! Keep up the great work.');
+      }
+
+      return {
+        overall_score: overallScore,
+        grade,
+        metrics: {
+          completeness,
+          accuracy: accuracy ?? 50,
+          timeliness,
+          coverage,
+        },
+        recommendations,
+        recent_stats: {
+          last_24h: {
+            messages: stats24h.length > 0 ? stats24h[0].messages_received : 0,
+            unique_aircraft: stats24h.length > 0 ? stats24h[0].unique_aircraft : 0,
+            avg_quality: avgQuality24h ?? 0,
+          },
+          last_7d: {
+            messages: stats7d.reduce((sum, s) => sum + s.messages_received, 0),
+            unique_aircraft: Math.max(...stats7d.map(s => s.unique_aircraft), 0),
+            avg_quality: avgQuality7d ?? 0,
+          },
+        },
+      };
+    } catch (error) {
+      const err = error as Error;
+      logger.error('Error getting data quality feedback', {
+        error: err.message,
+        feederId,
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Get feeder health status
    */
   async getFeederHealth(feederId: string): Promise<FeederHealthResponse> {

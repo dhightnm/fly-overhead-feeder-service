@@ -211,5 +211,35 @@ router.get(
   }
 );
 
+/**
+ * GET /api/v1/feeders/me/quality
+ * Get data quality feedback for authenticated feeder
+ */
+router.get(
+  '/me/quality',
+  authenticate,
+  generalLimiter,
+  async (req: ExpressRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.feeder) {
+        res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+        });
+        return;
+      }
+
+      const quality = await statsService.getDataQualityFeedback(req.feeder.feeder_id);
+
+      res.status(200).json({
+        success: true,
+        data: quality,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;
 
