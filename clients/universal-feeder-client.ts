@@ -115,10 +115,12 @@ async function main() {
   await pollAndSubmit();
 
   // Set up interval
-  const interval = setInterval(pollAndSubmit, POLL_INTERVAL);
+  const interval = setInterval(() => {
+    pollAndSubmit().catch(() => {});
+  }, POLL_INTERVAL);
 
   // Print stats every minute
-  setInterval(() => {
+  const statsInterval = setInterval(() => {
     console.log('\n--- Statistics ---');
     console.log(`Polls: ${stats.polls}`);
     console.log(`Submissions: ${stats.submissions}`);
@@ -128,21 +130,33 @@ async function main() {
   }, 60000);
 
   // Graceful shutdown
-  process.on('SIGINT', () => {
-    console.log('\n\nShutting down...');
+  const shutdown = (signal: string) => {
+    console.log(`\n${signal} received, shutting down...`);
     clearInterval(interval);
+    clearInterval(statsInterval);
     console.log('\n--- Final Statistics ---');
     console.log(`Total polls: ${stats.polls}`);
     console.log(`Total submissions: ${stats.submissions}`);
     console.log(`Total aircraft: ${stats.aircraft}`);
     console.log(`Errors: ${stats.errors}`);
     console.log('------------------------\n');
-    process.exit(0);
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // Handle uncaught exceptions to prevent crashes
+  process.on('uncaughtException', (error: Error) => {
+    console.error('Uncaught exception:', error.message);
+    // Don't exit - let systemd restart us
   });
 
-  process.on('SIGTERM', () => {
-    clearInterval(interval);
-    process.exit(0);
+  process.on('unhandledRejection', (reason: unknown) => {
+    console.error('Unhandled rejection:', reason);
+    // Don't exit - continue running
   });
 }
 

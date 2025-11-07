@@ -140,6 +140,68 @@ class PostgresRepository {
       return false;
     }
   }
+
+  async getFeederActivitySummary(hours: number = 24): Promise<{
+    totalFeeders: number;
+    activeFeeders: number;
+    feeders: Array<{
+      feeder_id: string;
+      name: string;
+      status: string;
+      last_seen_at: Date | null;
+      minutes_since_last_seen: number | null;
+      messages_24h: number;
+      unique_aircraft_24h: number;
+    }>;
+  }> {
+    try {
+      // Safe: hours is a number, not user input
+      const hoursInterval = Math.max(1, Math.min(168, hours)); // Clamp between 1 and 168 hours (7 days)
+      const summary = await this.db.query(`
+        SELECT 
+          f.feeder_id,
+          f.name,
+          f.status,
+          f.last_seen_at,
+          EXTRACT(EPOCH FROM (NOW() - f.last_seen_at))/60 as minutes_since_last_seen,
+          COALESCE(SUM(fs.messages_received), 0)::bigint as messages_24h,
+          COALESCE(MAX(fs.unique_aircraft), 0) as unique_aircraft_24h
+        FROM feeders f
+        LEFT JOIN feeder_stats fs ON fs.feeder_id = f.feeder_id 
+          AND fs.date >= CURRENT_DATE - INTERVAL '${hoursInterval} hours'
+        GROUP BY f.feeder_id, f.name, f.status, f.last_seen_at
+        ORDER BY f.last_seen_at DESC NULLS LAST;
+      `);
+
+      const activeFeeders = summary.filter((f: any) => 
+        f.status === 'active' && 
+        f.last_seen_at && 
+        (f.minutes_since_last_seen === null || f.minutes_since_last_seen < 60)
+      ).length;
+
+      return {
+        totalFeeders: summary.length,
+        activeFeeders,
+        feeders: summary.map((f: any) => ({
+          feeder_id: f.feeder_id,
+          name: f.name || 'Unnamed',
+          status: f.status,
+          last_seen_at: f.last_seen_at,
+          minutes_since_last_seen: f.minutes_since_last_seen ? Math.round(f.minutes_since_last_seen) : null,
+          messages_24h: parseInt(f.messages_24h, 10),
+          unique_aircraft_24h: parseInt(f.unique_aircraft_24h, 10),
+        })),
+      };
+    } catch (error) {
+      const err = error as Error;
+      logger.error('Error getting feeder activity summary', { error: err.message });
+      return {
+        totalFeeders: 0,
+        activeFeeders: 0,
+        feeders: [],
+      };
+    }
+  }
 }
 
 export default new PostgresRepository();

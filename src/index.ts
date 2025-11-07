@@ -65,21 +65,151 @@ app.get('/setup.sh', (_req: Request, res: Response) => {
   }
 });
 
-app.get('/', (_req: Request, res: Response) => {
+app.get('/', (req: Request, res: Response) => {
+  // Check if this is a browser request (HTML) or API request (JSON)
+  const acceptHeader = req.headers.accept || '';
+  
+  if (acceptHeader.includes('text/html')) {
+    // Serve HTML landing page for browsers
+    const setupUrl = process.env.SETUP_URL || 
+      (config.nodeEnv === 'production' 
+        ? 'https://api.fly-overhead.com' 
+        : `http://${config.host}:${config.port}`);
+    
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fly Overhead Feeder Setup</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        .code-block {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .warning-box {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        ul {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+        li {
+            margin: 5px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Fly Overhead Feeder Setup</h1>
+        <p class="subtitle">Connect your ADS-B feeder in minutes</p>
+        
+        <div class="info-box">
+            <strong>What you need:</strong>
+            <ul>
+                <li>An existing ADS-B feeder (PiAware, dump1090, etc.)</li>
+                <li>SSH access to your feeder device</li>
+                <li>About 5 minutes</li>
+            </ul>
+        </div>
+        
+        <h2>Quick Setup</h2>
+        <p>Run this command on your feeder device:</p>
+        <div class="code-block">
+curl -fsSL ${setupUrl}/setup.sh | bash
+        </div>
+        
+        <div class="warning-box">
+            <strong>⚠️ Important:</strong> This script will:
+            <ul>
+                <li>Register your feeder automatically</li>
+                <li>Install required dependencies</li>
+                <li>Set up a systemd service</li>
+                <li>Start feeding data to Fly Overhead</li>
+            </ul>
+            <p style="margin-top: 10px;">Make sure to save your API key when prompted!</p>
+        </div>
+        
+        <div class="footer">
+            <p>Thank you for contributing to Fly Overhead! 🎉</p>
+        </div>
+    </div>
+</body>
+</html>`;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+    return;
+  }
+  
+  // Default: serve JSON API info for API clients
   res.json({
     service: 'fly-overhead-feeder-ingestion',
     version: '1.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
-      endpoints: {
-        health: '/health',
-        setup: '/setup.sh',
-        register: 'POST /api/v1/feeders/register',
-        submitData: 'POST /api/v1/feeders/data',
-        getInfo: 'GET /api/v1/feeders/me',
-        getStats: 'GET /api/v1/feeders/me/stats',
-        getHealth: 'GET /api/v1/feeders/me/health',
-      },
+    endpoints: {
+      health: '/health',
+      setup: '/setup.sh',
+      register: 'POST /api/v1/feeders/register',
+      submitData: 'POST /api/v1/feeders/data',
+      getInfo: 'GET /api/v1/feeders/me',
+      getStats: 'GET /api/v1/feeders/me/stats',
+      getHealth: 'GET /api/v1/feeders/me/health',
+    },
   });
 });
 
@@ -92,6 +222,28 @@ async function startServer(): Promise<void> {
     if (!connected) {
       logger.error('Failed to connect to database. Exiting...');
       process.exit(1);
+    }
+
+    // Log feeder activity summary on startup
+    try {
+      const summary = await postgresRepository.getFeederActivitySummary(24);
+      logger.info('Feeder activity summary (last 24h)', {
+        totalFeeders: summary.totalFeeders,
+        activeFeeders: summary.activeFeeders,
+        feeders: summary.feeders.map(f => ({
+          id: f.feeder_id,
+          name: f.name,
+          status: f.status,
+          lastSeen: f.last_seen_at ? `${Math.round(f.minutes_since_last_seen || 0)}m ago` : 'Never',
+          messages24h: f.messages_24h,
+          uniqueAircraft24h: f.unique_aircraft_24h,
+        })),
+      });
+    } catch (error) {
+      // Non-critical, just log warning
+      logger.warn('Could not fetch feeder activity summary', {
+        error: (error as Error).message,
+      });
     }
 
     const server = app.listen(config.port, config.host, () => {

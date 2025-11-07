@@ -99,21 +99,29 @@ npm install -g @dhightnm/feeder-sdk axios 2>/dev/null || {
 # Step 4: Create client script
 echo ""
 echo "📝 Creating client script..."
-cat > ~/feeder-client.js << CLIENT_SCRIPT
+cat > ~/feeder-client.js << 'CLIENT_SCRIPT'
 #!/usr/bin/env node
 
 const { FeederClient } = require('@dhightnm/feeder-sdk');
 const axios = require('axios');
 
-const FEEDER_API_URL = process.env.FEEDER_API_URL || '$FEEDER_API_URL';
-const FEEDER_API_KEY = process.env.FEEDER_API_KEY || '$FEEDER_API_KEY';
-const DUMP1090_URL = process.env.DUMP1090_URL || '$DUMP1090_URL';
+const FEEDER_API_URL = process.env.FEEDER_API_URL || 'https://api.fly-overhead.com';
+const FEEDER_API_KEY = process.env.FEEDER_API_KEY;
+const DUMP1090_URL = process.env.DUMP1090_URL || 'http://127.0.0.1:8080/data/aircraft.json';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10);
+
+if (!FEEDER_API_KEY) {
+  console.error('Error: FEEDER_API_KEY environment variable required');
+  process.exit(1);
+}
 
 const client = new FeederClient({
   apiUrl: FEEDER_API_URL,
   apiKey: FEEDER_API_KEY,
 });
+
+let isRunning = true;
+let pollInterval = null;
 
 function feetToMeters(feet) { return feet * 0.3048; }
 function knotsToMetersPerSecond(knots) { return knots * 0.514444; }
@@ -128,12 +136,20 @@ function transformAircraft(aircraft) {
     }
   }
 
+  // Handle barometric altitude: prefer alt_baro (if numeric), fallback to altitude
+  let baro_altitude_feet = null;
+  if (aircraft.alt_baro !== undefined && aircraft.alt_baro !== 'ground' && typeof aircraft.alt_baro === 'number') {
+    baro_altitude_feet = aircraft.alt_baro;
+  } else if (aircraft.altitude !== undefined) {
+    baro_altitude_feet = aircraft.altitude;
+  }
+
   return {
     icao24: aircraft.hex,
     callsign: aircraft.flight ? aircraft.flight.trim() : null,
     latitude: aircraft.lat !== undefined ? aircraft.lat : null,
     longitude: aircraft.lon !== undefined ? aircraft.lon : null,
-    baro_altitude: aircraft.altitude !== undefined ? feetToMeters(aircraft.altitude) : null,
+    baro_altitude: baro_altitude_feet !== null ? feetToMeters(baro_altitude_feet) : null,
     geo_altitude: aircraft.alt_geom !== undefined ? feetToMeters(aircraft.alt_geom) : null,
     velocity: aircraft.gs !== undefined ? knotsToMetersPerSecond(aircraft.gs) : null,
     true_track: aircraft.track !== undefined ? aircraft.track : null,
@@ -149,6 +165,8 @@ function transformAircraft(aircraft) {
 }
 
 async function pollAndSubmit() {
+  if (!isRunning) return;
+  
   try {
     const response = await axios.get(DUMP1090_URL, { timeout: 5000 });
     const aircraft = response.data.aircraft || [];
@@ -162,29 +180,81 @@ async function pollAndSubmit() {
     if (states.length === 0) return;
 
     const result = await client.submitBatch(states);
-    console.log(\`✓ [\${new Date().toISOString()}] Submitted \${result.processed} aircraft\`);
+    console.log(`✓ [${new Date().toISOString()}] Submitted ${result.processed} aircraft`);
   } catch (error) {
-    console.error(\`✗ Error: \${error.message}\`);
+    // Don't log every error to avoid log spam - only log if it's been a while
+    const errorMessage = error.message || 'Unknown error';
+    if (Math.random() < 0.1) { // Log ~10% of errors to reduce noise
+      console.error(`✗ Error: ${errorMessage}`);
+    }
   }
 }
 
-console.log('Feeder Client Starting...');
-console.log(\`Server: \${FEEDER_API_URL}\`);
-console.log(\`Poll interval: \${POLL_INTERVAL}ms\n\`);
+function start() {
+  console.log('Feeder Client Starting...');
+  console.log(`Server: ${FEEDER_API_URL}`);
+  console.log(`Poll interval: ${POLL_INTERVAL}ms\n`);
 
-pollAndSubmit();
-setInterval(pollAndSubmit, POLL_INTERVAL);
+  // Initial poll (non-blocking)
+  pollAndSubmit().catch(() => {});
+
+  // Set up interval
+  pollInterval = setInterval(() => {
+    pollAndSubmit().catch(() => {});
+  }, POLL_INTERVAL);
+}
+
+function shutdown(signal) {
+  if (!isRunning) return;
+  
+  isRunning = false;
+  console.log(`\n${signal} received, shutting down...`);
+  
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  
+  // Give a moment for any in-flight requests to complete
+  setTimeout(() => {
+    process.exit(0);
+  }, 1000);
+}
+
+// Handle signals for graceful shutdown
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Handle uncaught exceptions to prevent crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error.message);
+  // Don't exit - let systemd restart us
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+  // Don't exit - continue running
+});
+
+// Start the client
+start();
 CLIENT_SCRIPT
 
 chmod +x ~/feeder-client.js
 
-# Step 5: Test
+# Step 5: Test (non-blocking)
 echo ""
 echo "🧪 Testing connection..."
 read -p "Test the client now? (Y/n) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    timeout 10 node ~/feeder-client.js || true
+    # Run test in background with timeout to avoid blocking
+    (timeout 10 node ~/feeder-client.js 2>&1 | head -20 || true) &
+    TEST_PID=$!
+    sleep 3
+    # Kill test if still running
+    kill $TEST_PID 2>/dev/null || true
+    wait $TEST_PID 2>/dev/null || true
     echo ""
 fi
 
@@ -195,6 +265,7 @@ sudo tee /etc/systemd/system/fly-overhead-feeder.service > /dev/null << EOF
 [Unit]
 Description=Fly Overhead Feeder Client
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -202,12 +273,19 @@ User=$USER
 Environment="FEEDER_API_URL=$FEEDER_API_URL"
 Environment="FEEDER_API_KEY=$FEEDER_API_KEY"
 Environment="DUMP1090_URL=$DUMP1090_URL"
+Environment="POLL_INTERVAL_MS=5000"
 WorkingDirectory=$HOME
 ExecStart=$(which node) $HOME/feeder-client.js
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+# Prevent the service from hanging
+TimeoutStartSec=30
+TimeoutStopSec=10
+# Don't kill the process on stop - let it shutdown gracefully
+KillMode=mixed
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target

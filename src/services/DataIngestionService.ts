@@ -144,6 +144,11 @@ class DataIngestionService {
           submitted: data.states.length,
           processed,
           processingTimeMs: processingTime,
+          aircraft: transformedStates.slice(0, 5).map(s => ({
+            icao24: s.state[0],
+            callsign: s.state[1] || null,
+            alt: s.state[7] ? Math.round(s.state[7]) : null,
+          })),
         });
 
         // Update stats (fire and forget)

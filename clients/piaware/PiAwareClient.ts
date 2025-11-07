@@ -148,10 +148,20 @@ export class PiAwareClient {
     }
   }
 
+  private pollInterval: NodeJS.Timeout | null = null;
+  private statsInterval: NodeJS.Timeout | null = null;
+  private isRunning = false;
+
   /**
    * Start continuous polling
    */
   start(): void {
+    if (this.isRunning) {
+      console.warn('Client is already running');
+      return;
+    }
+
+    this.isRunning = true;
     console.log('PiAware Feeder Client');
     console.log('=====================');
     console.log(`Server: ${this.config.apiUrl}`);
@@ -159,16 +169,16 @@ export class PiAwareClient {
     console.log(`Poll interval: ${this.config.pollInterval}ms`);
     console.log('');
 
-    // Initial poll
-    this.pollAndSubmit();
+    // Initial poll (non-blocking)
+    this.pollAndSubmit().catch(() => {});
 
     // Set up interval
-    setInterval(() => {
-      this.pollAndSubmit();
+    this.pollInterval = setInterval(() => {
+      this.pollAndSubmit().catch(() => {});
     }, this.config.pollInterval);
 
     // Print stats every minute
-    setInterval(() => {
+    this.statsInterval = setInterval(() => {
       console.log('\n--- Statistics ---');
       console.log(`Polls: ${this.stats.totalPolls}`);
       console.log(`Submissions: ${this.stats.totalSubmissions}`);
@@ -176,6 +186,25 @@ export class PiAwareClient {
       console.log(`Errors: ${this.stats.errors}`);
       console.log('------------------\n');
     }, 60000);
+  }
+
+  /**
+   * Stop polling
+   */
+  stop(): void {
+    if (!this.isRunning) return;
+    
+    this.isRunning = false;
+    
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+    
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = null;
+    }
   }
 
   /**
@@ -207,9 +236,26 @@ if (require.main === module) {
   client.start();
 
   // Graceful shutdown
-  process.on('SIGINT', () => {
-    console.log('\nShutting down...');
-    process.exit(0);
+  const shutdown = (signal: string) => {
+    console.log(`\n${signal} received, shutting down...`);
+    client.stop();
+    setTimeout(() => {
+      process.exit(0);
+    }, 1000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // Handle uncaught exceptions to prevent crashes
+  process.on('uncaughtException', (error: Error) => {
+    console.error('Uncaught exception:', error.message);
+    // Don't exit - let systemd restart us
+  });
+
+  process.on('unhandledRejection', (reason: unknown) => {
+    console.error('Unhandled rejection:', reason);
+    // Don't exit - continue running
   });
 }
 
