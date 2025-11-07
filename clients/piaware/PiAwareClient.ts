@@ -67,12 +67,20 @@ export class PiAwareClient {
       }
     }
 
+    // Handle barometric altitude: prefer alt_baro (if numeric), fallback to altitude
+    let baro_altitude_feet: number | null = null;
+    if (aircraft.alt_baro !== undefined && aircraft.alt_baro !== 'ground' && typeof aircraft.alt_baro === 'number') {
+      baro_altitude_feet = aircraft.alt_baro;
+    } else if (aircraft.altitude !== undefined) {
+      baro_altitude_feet = aircraft.altitude;
+    }
+
     return {
       icao24: aircraft.hex,
       callsign: aircraft.flight ? aircraft.flight.trim() : null,
       latitude: aircraft.lat !== undefined ? aircraft.lat : null,
       longitude: aircraft.lon !== undefined ? aircraft.lon : null,
-      baro_altitude: aircraft.altitude !== undefined ? aircraft.altitude * 0.3048 : null,
+      baro_altitude: baro_altitude_feet !== null ? baro_altitude_feet * 0.3048 : null,
       geo_altitude: aircraft.alt_geom !== undefined ? aircraft.alt_geom * 0.3048 : null,
       velocity: aircraft.gs !== undefined ? aircraft.gs * 0.514444 : null,
       true_track: aircraft.track !== undefined ? aircraft.track : null,

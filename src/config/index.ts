@@ -37,6 +37,16 @@ const config: Config = {
     maxDataAgeSeconds: parseInt(process.env.MAX_DATA_AGE_SECONDS || '300', 10),
   },
 
+  // Main Service Integration
+  mainService: {
+    url: process.env.MAIN_SERVICE_URL || 'http://localhost:3005',
+    aircraftEndpoint: process.env.MAIN_SERVICE_AIRCRAFT_ENDPOINT || '/api/feeder/aircraft',
+    registerEndpoint: process.env.MAIN_SERVICE_REGISTER_ENDPOINT || '/api/feeder/register',
+    statsEndpoint: process.env.MAIN_SERVICE_STATS_ENDPOINT || '/api/feeder/stats',
+    lastSeenEndpoint: process.env.MAIN_SERVICE_LAST_SEEN_ENDPOINT || '/api/feeder/last-seen',
+    timeout: parseInt(process.env.MAIN_SERVICE_TIMEOUT_MS || '5000', 10),
+  },
+
   // Queue (Optional)
   queue: {
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',

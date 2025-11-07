@@ -32,13 +32,9 @@ export const VALIDATION_RULES: ValidationRules = {
   callsign: /^[A-Z0-9]{1,8}$/i, // Alphanumeric, max 8 chars
 };
 
-/**
- * Validate a single aircraft state object
- */
 export function validateAircraftState(state: AircraftState, index: number = 0): ValidationResult {
   const errors: ValidationError[] = [];
 
-  // Required fields
   if (!state.icao24) {
     errors.push({
       index,
@@ -53,7 +49,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     });
   }
 
-  // Validate latitude
   if (state.latitude !== null && state.latitude !== undefined) {
     if (
       typeof state.latitude !== 'number' ||
@@ -68,7 +63,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate longitude
   if (state.longitude !== null && state.longitude !== undefined) {
     if (
       typeof state.longitude !== 'number' ||
@@ -83,7 +77,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate altitudes
   if (state.baro_altitude !== null && state.baro_altitude !== undefined) {
     if (
       typeof state.baro_altitude !== 'number' ||
@@ -112,7 +105,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate velocity
   if (state.velocity !== null && state.velocity !== undefined) {
     if (
       typeof state.velocity !== 'number' ||
@@ -127,7 +119,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate true_track
   if (state.true_track !== null && state.true_track !== undefined) {
     if (
       typeof state.true_track !== 'number' ||
@@ -142,7 +133,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate vertical_rate
   if (state.vertical_rate !== null && state.vertical_rate !== undefined) {
     if (
       typeof state.vertical_rate !== 'number' ||
@@ -157,7 +147,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate category
   if (state.category !== null && state.category !== undefined) {
     if (
       typeof state.category !== 'number' ||
@@ -172,7 +161,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate position_source
   if (state.position_source !== null && state.position_source !== undefined) {
     if (
       typeof state.position_source !== 'number' ||
@@ -187,7 +175,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate squawk
   if (state.squawk !== null && state.squawk !== undefined) {
     if (typeof state.squawk !== 'string' || !VALIDATION_RULES.squawk.test(state.squawk)) {
       errors.push({
@@ -198,7 +185,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate callsign
   if (state.callsign !== null && state.callsign !== undefined) {
     if (typeof state.callsign !== 'string' || !VALIDATION_RULES.callsign.test(state.callsign)) {
       errors.push({
@@ -209,7 +195,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
     }
   }
 
-  // Validate timestamps
   if (state.time_position !== null && state.time_position !== undefined) {
     if (typeof state.time_position !== 'number' || state.time_position < 0) {
       errors.push({
@@ -236,9 +221,6 @@ export function validateAircraftState(state: AircraftState, index: number = 0): 
   };
 }
 
-/**
- * Validate a batch of aircraft states
- */
 export function validateAircraftStateBatch(states: AircraftState[]): ValidationResult {
   if (!Array.isArray(states)) {
     return {
@@ -269,9 +251,6 @@ export function validateAircraftStateBatch(states: AircraftState[]): ValidationR
   };
 }
 
-/**
- * Validate feeder registration data
- */
 export function validateFeederRegistration(data: FeederRegistrationData): ValidationResult {
   const errors: ValidationError[] = [];
 

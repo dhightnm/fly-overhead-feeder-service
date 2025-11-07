@@ -208,12 +208,20 @@ function transformAircraft(aircraft) {
     }
   }
 
+  // Handle barometric altitude: prefer alt_baro (if numeric), fallback to altitude
+  let baro_altitude_feet = null;
+  if (aircraft.alt_baro !== undefined && aircraft.alt_baro !== 'ground' && typeof aircraft.alt_baro === 'number') {
+    baro_altitude_feet = aircraft.alt_baro;
+  } else if (aircraft.altitude !== undefined) {
+    baro_altitude_feet = aircraft.altitude;
+  }
+
   return {
     icao24: aircraft.hex,
     callsign: aircraft.flight ? aircraft.flight.trim() : null,
     latitude: aircraft.lat !== undefined ? aircraft.lat : null,
     longitude: aircraft.lon !== undefined ? aircraft.lon : null,
-    baro_altitude: aircraft.altitude !== undefined ? feetToMeters(aircraft.altitude) : null,
+    baro_altitude: baro_altitude_feet !== null ? feetToMeters(baro_altitude_feet) : null,
     geo_altitude: aircraft.alt_geom !== undefined ? feetToMeters(aircraft.alt_geom) : null,
     velocity: aircraft.gs !== undefined ? knotsToMetersPerSecond(aircraft.gs) : null,
     true_track: aircraft.track !== undefined ? aircraft.track : null,

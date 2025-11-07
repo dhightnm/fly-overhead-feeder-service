@@ -30,7 +30,6 @@ const logger = winston.createLogger({
   ],
 });
 
-// Add file transports in production
 if (config.nodeEnv === 'production') {
   logger.add(
     new winston.transports.File({

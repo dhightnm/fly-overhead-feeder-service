@@ -4,10 +4,6 @@ import logger from '../utils/logger';
 
 const router: Router = express.Router();
 
-/**
- * GET /health
- * Health check endpoint
- */
 router.get('/', async (_req: Request, res: Response) => {
   const health: {
     status: string;
@@ -27,10 +23,8 @@ router.get('/', async (_req: Request, res: Response) => {
   };
 
   try {
-    // Check database connection
     const dbHealthy = await postgresRepository.healthCheck();
     health.checks.database = dbHealthy ? 'connected' : 'disconnected';
-
     if (!dbHealthy) {
       health.status = 'degraded';
     }
@@ -41,7 +35,6 @@ router.get('/', async (_req: Request, res: Response) => {
     health.status = 'degraded';
   }
 
-  // Add memory usage
   const memUsage = process.memoryUsage();
   health.memory = {
     rss: Math.round(memUsage.rss / 1024 / 1024) + ' MB',
@@ -53,10 +46,6 @@ router.get('/', async (_req: Request, res: Response) => {
   res.status(statusCode).json(health);
 });
 
-/**
- * GET /ready
- * Readiness probe (for Kubernetes/orchestration)
- */
 router.get('/ready', async (_req: Request, res: Response) => {
   try {
     const dbHealthy = await postgresRepository.healthCheck();
@@ -84,10 +73,6 @@ router.get('/ready', async (_req: Request, res: Response) => {
   }
 });
 
-/**
- * GET /live
- * Liveness probe (for Kubernetes/orchestration)
- */
 router.get('/live', (_req: Request, res: Response) => {
   res.status(200).json({
     alive: true,

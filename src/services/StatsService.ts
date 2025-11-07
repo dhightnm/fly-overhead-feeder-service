@@ -43,9 +43,6 @@ interface FeederHealthResponse {
 }
 
 class StatsService {
-  /**
-   * Get comprehensive feeder statistics
-   */
   async getFeederStatistics(feederId: string, days: number = 7): Promise<FeederStatisticsResponse> {
     try {
       const stats = await postgresRepository.getFeederStatsLastNDays(feederId, days);
@@ -114,20 +111,11 @@ class StatsService {
     }
   }
 
-  /**
-   * Get real-time statistics for all feeders
-   */
   async getAllFeedersStats(): Promise<FeederStatsRecord[]> {
-    // This would require a new query in PostgresRepository
-    // For now, return empty array
     logger.warn('getAllFeedersStats not yet implemented');
     return [];
   }
 
-  /**
-   * Get data quality feedback for a feeder
-   * Provides actionable feedback on data quality
-   */
   async getDataQualityFeedback(feederId: string): Promise<{
     overall_score: number;
     grade: string;
@@ -269,9 +257,6 @@ class StatsService {
     }
   }
 
-  /**
-   * Get feeder health status
-   */
   async getFeederHealth(feederId: string): Promise<FeederHealthResponse> {
     try {
       const feeder = await postgresRepository.getFeederById(feederId);

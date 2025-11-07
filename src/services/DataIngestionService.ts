@@ -1,9 +1,9 @@
-import postgresRepository from '../repositories/PostgresRepository';
 import logger from '../utils/logger';
 import config from '../config';
 import { validateAircraftStateBatch } from '../utils/validator';
 import { transformToOpenSkyFormat } from '../utils/dataTransformer';
 import { DataSubmissionPayload, DataSubmissionResponse, AircraftState, OpenSkyState } from '../types';
+import axios, { AxiosError } from 'axios';
 
 interface AppError extends Error {
   statusCode?: number;
@@ -11,15 +11,6 @@ interface AppError extends Error {
 }
 
 class DataIngestionService {
-  private sourcePriority: number;
-
-  constructor() {
-    this.sourcePriority = 30; // Higher than OpenSky (20), same as websocket
-  }
-
-  /**
-   * Ingest aircraft state data from a feeder
-   */
   async ingestData(feederId: string, data: DataSubmissionPayload): Promise<DataSubmissionResponse> {
     const startTime = Date.now();
 
@@ -109,72 +100,135 @@ class DataIngestionService {
         };
       }
 
-      // Batch insert into database
-      const result = await postgresRepository.batchUpsertAircraftStates(
-        transformedStates,
-        this.sourcePriority
-      );
-
-      const processingTime = Date.now() - startTime;
-
-      logger.info('Data ingestion completed', {
-        feederId,
-        submitted: data.states.length,
-        processed: result.success,
-        errors: result.errors,
-        processingTimeMs: processingTime,
-      });
-
-      // Update stats (fire and forget)
-      this.updateFeederStats(feederId, result.success, data.states.length).catch((err) => {
-        logger.warn('Failed to update feeder stats', {
-          error: err.message,
-          feederId,
-        });
-      });
-
-      return {
-        success: result.errors === 0,
-        processed: result.success,
-        errors: result.errorDetails,
+      // Forward to main service instead of writing directly to database
+      const mainServiceUrl = `${config.mainService.url}${config.mainService.aircraftEndpoint}`;
+      
+      // Prepare payload for main service
+      const payload = {
         feeder_id: feederId,
-        processing_time_ms: processingTime,
+        timestamp: data.timestamp || Math.floor(Date.now() / 1000),
+        states: transformedStates.map((item) => ({
+          state: item.state,
+          feeder_id: item.feederId,
+        })),
       };
+
+      let processed = 0;
+      let errors: Array<{ icao24?: string; error: string }> = [];
+
+      try {
+        // POST to main service
+        const response = await axios.post(mainServiceUrl, payload, {
+          timeout: config.mainService.timeout,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        // Handle response from main service
+        if (response.data && typeof response.data === 'object') {
+          processed = response.data.processed || transformedStates.length;
+          
+          if (response.data.errors && Array.isArray(response.data.errors)) {
+            errors = response.data.errors;
+          }
+        } else {
+          // Assume all processed if no error response
+          processed = transformedStates.length;
+        }
+
+        const processingTime = Date.now() - startTime;
+
+        logger.info('Data forwarded to main service', {
+          feederId,
+          submitted: data.states.length,
+          processed,
+          processingTimeMs: processingTime,
+        });
+
+        // Update stats (fire and forget)
+        this.updateFeederStats(feederId, processed, data.states.length).catch(() => {
+          // Non-critical, silently fail
+        });
+
+        return {
+          success: errors.length === 0,
+          processed,
+          errors,
+          feeder_id: feederId,
+          processing_time_ms: processingTime,
+        };
+      } catch (error) {
+        const axiosError = error as AxiosError;
+
+        if (axiosError.response) {
+          logger.error('Main service returned error', {
+            feederId,
+            status: axiosError.response.status,
+            data: axiosError.response.data,
+          });
+
+          // Try to extract error details from response
+          if (axiosError.response.data && typeof axiosError.response.data === 'object') {
+            const errorData = axiosError.response.data as any;
+            if (errorData.errors && Array.isArray(errorData.errors)) {
+              errors = errorData.errors;
+            } else if (errorData.error) {
+              errors = [{ icao24: undefined, error: errorData.error }];
+            }
+          }
+
+          if (axiosError.response.status === 400) {
+            const appError = new Error('Main service rejected data') as AppError;
+            appError.statusCode = 400;
+            appError.details = errors.length > 0 ? errors : [{ icao24: undefined, error: 'Main service validation failed' }];
+            throw appError;
+          }
+        } else if (axiosError.request) {
+          logger.error('Main service unavailable', {
+            feederId,
+            error: axiosError.message,
+          });
+        }
+
+        const appError = new Error('Main service unavailable') as AppError;
+        appError.statusCode = 503;
+        appError.details = errors.length > 0 ? errors : [{ icao24: undefined, error: 'Failed to forward data to main service' }];
+        throw appError;
+      }
     } catch (error) {
       const err = error as Error;
+      if (err instanceof Error && (err as AppError).statusCode) {
+        throw error;
+      }
       logger.error('Error ingesting data', {
         error: err.message,
         feederId,
-        stateCount: data.states.length,
       });
-
       throw error;
     }
   }
 
-  /**
-   * Update feeder statistics
-   */
   async updateFeederStats(feederId: string, messageCount: number, _totalSubmitted: number): Promise<void> {
     try {
-      await postgresRepository.incrementFeederStats(
-        feederId,
-        messageCount,
-        messageCount // Approximate unique aircraft count
-      );
-    } catch (error) {
-      const err = error as Error;
-      logger.error('Error updating feeder stats', {
-        error: err.message,
-        feederId,
+      // Forward stats to main service
+      const mainServiceUrl = `${config.mainService.url}${config.mainService.statsEndpoint}`;
+      
+      const payload = {
+        feeder_id: feederId,
+        messages_received: messageCount,
+        unique_aircraft: messageCount, // Approximate unique aircraft count
+      };
+
+      await axios.post(mainServiceUrl, payload, {
+        timeout: config.mainService.timeout,
+        headers: { 'Content-Type': 'application/json' },
       });
-      // Don't throw - this is non-critical
+    } catch (error) {
+      // Non-critical, silently fail
     }
   }
 
-  /**
-   * Calculate data quality score
-   */
   calculateDataQuality(states: AircraftState[]): number {
     if (states.length === 0) return 0;
 

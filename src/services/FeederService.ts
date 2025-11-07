@@ -1,8 +1,10 @@
 import postgresRepository from '../repositories/PostgresRepository';
 import authService from './AuthService';
 import logger from '../utils/logger';
+import config from '../config';
 import { validateFeederRegistration } from '../utils/validator';
 import { FeederRegistrationData, FeederData, FeederStats } from '../types';
+import axios, { AxiosError } from 'axios';
 
 interface AppError extends Error {
   statusCode?: number;
@@ -11,9 +13,6 @@ interface AppError extends Error {
 }
 
 class FeederService {
-  /**
-   * Register a new feeder
-   */
   async registerFeeder(data: FeederRegistrationData): Promise<{ feeder_id: string; api_key: string; message: string }> {
     // Validate input
     const { valid, errors } = validateFeederRegistration(data);
@@ -39,38 +38,68 @@ class FeederService {
     };
 
     try {
-      // Create feeder in database
-      await postgresRepository.createFeeder(feederData);
-
-      logger.info('Feeder registered successfully', {
+      // Forward registration to main service
+      const mainServiceUrl = `${config.mainService.url}${config.mainService.registerEndpoint}`;
+      
+      const payload = {
         feeder_id: feederId,
+        api_key_hash: apiKeyHash,
         name: feederData.name,
-      });
-
-      return {
-        feeder_id: feederId,
-        api_key: apiKey, // Only returned once!
-        message: 'Store this API key securely. It will not be shown again.',
+        ...(feederData.location ? {
+          latitude: feederData.location.latitude,
+          longitude: feederData.location.longitude,
+        } : {}),
+        metadata: feederData.metadata,
       };
+
+      try {
+        await axios.post(mainServiceUrl, payload, {
+          timeout: config.mainService.timeout,
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        return {
+          feeder_id: feederId,
+          api_key: apiKey,
+          message: 'Store this API key securely. It will not be shown again.',
+        };
+      } catch (error) {
+        const axiosError = error as AxiosError;
+        
+        if (axiosError.response) {
+          logger.error('Main service rejected feeder registration', {
+            status: axiosError.response.status,
+            data: axiosError.response.data,
+            feederId,
+          });
+
+          const appError = new Error('Failed to register feeder') as AppError;
+          appError.statusCode = axiosError.response.status || 500;
+          appError.details = axiosError.response.data;
+          throw appError;
+        } else {
+          logger.error('Main service unavailable', {
+            error: axiosError.message,
+            feederId,
+          });
+
+          const appError = new Error('Main service unavailable') as AppError;
+          appError.statusCode = 503;
+          throw appError;
+        }
+      }
     } catch (error) {
       const err = error as AppError;
-      logger.error('Error registering feeder', {
-        error: err.message,
-        name: data.name,
-      });
-
-      // Check for duplicate feeder_id (should be rare)
-      if (err.code === '23505') {
-        throw new Error('Feeder ID conflict. Please try again.');
+      if (err.statusCode) {
+        throw error;
       }
-
-      throw error;
+      logger.error('Error registering feeder', { error: err.message });
+      const appError = new Error('Failed to register feeder') as AppError;
+      appError.statusCode = 500;
+      throw appError;
     }
   }
 
-  /**
-   * Get feeder information by feeder ID
-   */
   async getFeederInfo(feederId: string): Promise<Partial<FeederData>> {
     try {
       const feeder = await postgresRepository.getFeederById(feederId);
@@ -101,18 +130,11 @@ class FeederService {
       if (err.statusCode) {
         throw error;
       }
-
-      logger.error('Error getting feeder info', {
-        error: err.message,
-        feederId,
-      });
+      logger.error('Error getting feeder info', { error: err.message, feederId });
       throw error;
     }
   }
 
-  /**
-   * Get feeder statistics
-   */
   async getFeederStats(feederId: string): Promise<FeederStats> {
     try {
       // Get today's stats
@@ -140,11 +162,7 @@ class FeederService {
       };
     } catch (error) {
       const err = error as Error;
-      logger.error('Error getting feeder stats', {
-        error: err.message,
-        feederId,
-      });
-      // Return empty stats on error
+      logger.error('Error getting feeder stats', { error: err.message, feederId });
       return {
         today: { messages_received: 0, unique_aircraft: 0 },
         last_24h: { messages_received: 0, unique_aircraft: 0 },
@@ -152,9 +170,6 @@ class FeederService {
     }
   }
 
-  /**
-   * Authenticate a feeder by API key
-   */
   async authenticateFeeder(apiKey: string): Promise<FeederData> {
     if (!apiKey || !authService.validateApiKeyFormat(apiKey)) {
       const error = new Error('Invalid API key format') as AppError;
@@ -162,44 +177,20 @@ class FeederService {
       throw error;
     }
 
-    // In production, you'd want to cache this lookup
-    // For now, we need to iterate through feeders to find a match
-    // This is not ideal for scale - consider adding an API key prefix -> feeder_id lookup table
-
-    try {
-      // For MVP, we'll extract a hash of the API key and search
-      // Better approach: Use a separate api_keys table with feeder_id foreign key
-      
-      // This is a temporary solution - hash the key and do a direct lookup
-      // In production, implement a proper API key lookup mechanism
-      const error = new Error('Authentication requires database query optimization') as AppError;
-      error.statusCode = 500;
-      (error as any).note = 'Consider implementing API key -> feeder_id lookup table for production';
-      
-      // For now, return a mock authentication approach
-      // You should enhance this with proper key management
-      throw error;
-      
-    } catch (error) {
-      const err = error as Error;
-      logger.error('Error authenticating feeder', { error: err.message });
-      throw error;
-    }
+    const error = new Error('Authentication requires database query optimization') as AppError;
+    error.statusCode = 500;
+    throw error;
   }
 
-  /**
-   * Update feeder last seen timestamp
-   */
   async updateLastSeen(feederId: string): Promise<void> {
     try {
-      await postgresRepository.updateFeederLastSeen(feederId);
+      await axios.put(
+        `${config.mainService.url}${config.mainService.lastSeenEndpoint}`,
+        { feeder_id: feederId },
+        { timeout: config.mainService.timeout, headers: { 'Content-Type': 'application/json' } }
+      );
     } catch (error) {
-      const err = error as Error;
-      // Non-critical, just log
-      logger.warn('Failed to update last seen', {
-        error: err.message,
-        feederId,
-      });
+      // Non-critical, silently fail
     }
   }
 }

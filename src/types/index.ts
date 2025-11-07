@@ -147,6 +147,14 @@ export interface Config {
     batchIntervalMs: number;
     maxDataAgeSeconds: number;
   };
+  mainService: {
+    url: string;
+    aircraftEndpoint: string;
+    registerEndpoint: string;
+    statsEndpoint: string;
+    lastSeenEndpoint: string;
+    timeout: number;
+  };
   queue: {
     redisUrl: string;
     useQueue: boolean;

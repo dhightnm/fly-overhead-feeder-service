@@ -10,15 +10,10 @@ import {
   registrationLimiter,
   generalLimiter,
 } from '../middlewares/rateLimiter';
-import logger from '../utils/logger';
 import { ExpressRequest } from '../types';
 
 const router: Router = express.Router();
 
-/**
- * POST /api/v1/feeders/register
- * Register a new feeder
- */
 router.post(
   '/register',
   registrationLimiter,
@@ -46,13 +41,6 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await feederService.registerFeeder(req.body);
-
-      logger.info('Feeder registered', {
-        feeder_id: result.feeder_id,
-        name: req.body.name,
-        ip: req.ip,
-      });
-
       res.status(201).json(result);
     } catch (error) {
       next(error);
@@ -60,10 +48,6 @@ router.post(
   }
 );
 
-/**
- * POST /api/v1/feeders/data
- * Submit aircraft state data
- */
 router.post(
   '/data',
   authenticate,
@@ -100,12 +84,8 @@ router.post(
         req.body
       );
 
-      // Update last seen timestamp (fire and forget)
-      feederService.updateLastSeen(req.feeder.feeder_id).catch((err) => {
-        logger.warn('Failed to update last seen', {
-          error: err.message,
-          feeder_id: req.feeder?.feeder_id,
-        });
+      feederService.updateLastSeen(req.feeder.feeder_id).catch(() => {
+        // Non-critical, silently fail
       });
 
       res.status(200).json(result);
@@ -115,10 +95,6 @@ router.post(
   }
 );
 
-/**
- * GET /api/v1/feeders/me
- * Get authenticated feeder information
- */
 router.get(
   '/me',
   authenticate,
@@ -146,10 +122,6 @@ router.get(
   }
 );
 
-/**
- * GET /api/v1/feeders/me/stats
- * Get detailed statistics for authenticated feeder
- */
 router.get(
   '/me/stats',
   authenticate,
@@ -184,10 +156,6 @@ router.get(
   }
 );
 
-/**
- * GET /api/v1/feeders/me/health
- * Get health status for authenticated feeder
- */
 router.get(
   '/me/health',
   authenticate,
@@ -211,10 +179,6 @@ router.get(
   }
 );
 
-/**
- * GET /api/v1/feeders/me/quality
- * Get data quality feedback for authenticated feeder
- */
 router.get(
   '/me/quality',
   authenticate,

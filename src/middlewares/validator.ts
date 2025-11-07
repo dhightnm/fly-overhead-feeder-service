@@ -9,9 +9,6 @@ interface AppError extends Error {
   code?: string;
 }
 
-/**
- * Middleware to handle validation results from express-validator
- */
 export function handleValidationErrors(req: Request, res: Response, next: NextFunction): void {
   const errors = validationResult(req);
 
@@ -24,8 +21,6 @@ export function handleValidationErrors(req: Request, res: Response, next: NextFu
         field = err.nestedErrors?.[0]?.type === 'field' 
           ? (Array.isArray(err.nestedErrors[0].path) ? err.nestedErrors[0].path.join('.') : String(err.nestedErrors[0].path))
           : '';
-      } else {
-        field = '';
       }
       return {
         field,
@@ -51,21 +46,14 @@ export function handleValidationErrors(req: Request, res: Response, next: NextFu
   next();
 }
 
-/**
- * Error handling middleware
- * Catches and formats errors from route handlers
- */
 export function errorHandler(err: AppError, req: Request, res: Response, _next: NextFunction): void {
-  // Log error
   logger.error('Request error', {
     error: err.message,
-    stack: err.stack,
     path: req.path,
     method: req.method,
     feeder_id: (req as ExpressRequest).feeder?.feeder_id,
   });
 
-  // Handle known error types
   if (err.statusCode) {
     res.status(err.statusCode).json({
       success: false,
@@ -75,9 +63,7 @@ export function errorHandler(err: AppError, req: Request, res: Response, _next: 
     return;
   }
 
-  // Handle database errors
   if (err.code === '23505') {
-    // Unique constraint violation
     res.status(409).json({
       success: false,
       error: 'Resource already exists',
@@ -87,7 +73,6 @@ export function errorHandler(err: AppError, req: Request, res: Response, _next: 
   }
 
   if (err.code === '23503') {
-    // Foreign key violation
     res.status(400).json({
       success: false,
       error: 'Invalid reference',
@@ -96,7 +81,6 @@ export function errorHandler(err: AppError, req: Request, res: Response, _next: 
     return;
   }
 
-  // Default error response
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -104,16 +88,8 @@ export function errorHandler(err: AppError, req: Request, res: Response, _next: 
   });
 }
 
-/**
- * 404 handler for unknown routes
- */
 export function notFoundHandler(req: Request, res: Response): void {
-  logger.warn('Route not found', {
-    path: req.path,
-    method: req.method,
-    ip: req.ip,
-  });
-
+  logger.warn('Route not found', { path: req.path, method: req.method });
   res.status(404).json({
     success: false,
     error: 'Route not found',
