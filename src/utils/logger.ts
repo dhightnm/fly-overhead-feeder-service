@@ -1,5 +1,14 @@
 import winston from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import config from '../config';
+import fs from 'fs';
+import path from 'path';
+
+// Ensure logs directory exists
+const logsDir = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
 
 const logger = winston.createLogger({
   level: config.logging.level,
@@ -31,15 +40,28 @@ const logger = winston.createLogger({
 });
 
 if (config.nodeEnv === 'production') {
+  // Error logs - rotate hourly, keep 12 hours (12 files max)
   logger.add(
-    new winston.transports.File({
-      filename: 'logs/error.log',
+    new DailyRotateFile({
+      filename: path.join(logsDir, 'error-%DATE%.log'),
+      datePattern: 'YYYY-MM-DD-HH',
       level: 'error',
+      maxSize: '10m',
+      maxFiles: 12, // Keep 12 hours worth of logs (12 files)
+      zippedArchive: true,
+      auditFile: path.join(logsDir, '.error-audit.json'),
     })
   );
+
+  // Combined logs - rotate hourly, keep 12 hours (12 files max)
   logger.add(
-    new winston.transports.File({
-      filename: 'logs/combined.log',
+    new DailyRotateFile({
+      filename: path.join(logsDir, 'combined-%DATE%.log'),
+      datePattern: 'YYYY-MM-DD-HH',
+      maxSize: '10m',
+      maxFiles: 12, // Keep 12 hours worth of logs (12 files)
+      zippedArchive: true,
+      auditFile: path.join(logsDir, '.combined-audit.json'),
     })
   );
 }
