@@ -370,19 +370,23 @@ CLIENT_SCRIPT
 
 chmod +x ~/feeder-client.js
 
-# Step 5: Test (non-blocking)
+# Step 5: Test (non-blocking, optional)
 echo ""
-echo "🧪 Testing connection..."
-read -p "Test the client now? (Y/n) " -n 1 -r
+echo "🧪 Testing connection (optional)..."
+read -p "Test the client now? (y/N) " -n 1 -r
 echo
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+if [[ $REPLY =~ ^[Yy]$ ]]; then
     # Run test in background with timeout to avoid blocking
+    echo "   Running test (will timeout after 10 seconds)..."
     (timeout 10 node ~/feeder-client.js 2>&1 | head -20 || true) &
     TEST_PID=$!
     sleep 3
     # Kill test if still running
     kill $TEST_PID 2>/dev/null || true
     wait $TEST_PID 2>/dev/null || true
+    echo ""
+else
+    echo "   Skipping test (you can test later with: node ~/feeder-client.js)"
     echo ""
 fi
 
