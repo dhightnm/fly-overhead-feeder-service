@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  feeder-ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fly-overhead-feeder-ingestion
+    ports:
+      - "3006:3006"
+    env_file:
+      - ./.env.production
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./logs:/usr/src/app/logs
+    networks:
+      - fly-overhead-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  fly-overhead-network:
+    external: true  # Use existing network from main service
+

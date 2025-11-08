@@ -2,6 +2,7 @@ node_modules
 npm-debug.log
 .env
 .env.local
+.env.production
 .git
 .gitignore
 README.md
@@ -18,6 +19,9 @@ logs
 tests
 examples
 docker-compose.yml
+docker-compose.prod.yml
 Dockerfile
 .dockerignore
+dist
+*.tsbuildinfo
 

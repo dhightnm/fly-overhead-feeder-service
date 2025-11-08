@@ -1,3 +1,23 @@
+# Multi-stage build for smaller production image
+FROM node:18-alpine AS builder
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install all dependencies (including dev dependencies for TypeScript build)
+RUN npm ci
+
+# Copy application code
+COPY . .
+
+# Build TypeScript
+RUN npm run build
+
+# Production stage
 FROM node:18-alpine
 
 # Install curl for healthcheck
@@ -8,22 +28,19 @@ WORKDIR /usr/src/app
 
 # Copy package files
 COPY package*.json ./
-COPY tsconfig.json ./
 
-# Install dependencies (including dev dependencies for TypeScript)
-RUN npm ci
+# Install only production dependencies
+RUN npm ci --only=production && npm cache clean --force
 
-# Copy application code
-COPY . .
+# Copy built application from builder stage
+COPY --from=builder /usr/src/app/dist ./dist
 
-# Build TypeScript
-RUN npm run build
-
-# Remove dev dependencies to reduce image size
-RUN npm prune --production
-
-# Create logs directory
+# Create logs directory with proper permissions
+# Note: Logs directory will be mounted as volume, so we just ensure it exists
 RUN mkdir -p logs
+
+# Switch to non-root user for security
+USER node
 
 # Expose port
 EXPOSE 3006
