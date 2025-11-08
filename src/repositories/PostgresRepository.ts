@@ -48,7 +48,7 @@ class PostgresRepository {
     this.isConnected = false;
   }
 
-  // Feeder Operations (Read-only - writes forwarded to main service)
+  // Feeder Operations (Read-only - all writes forwarded to main service)
 
   async getFeederById(feederId: string): Promise<FeederData | null> {
     const query = `

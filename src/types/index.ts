@@ -153,6 +153,7 @@ export interface Config {
     registerEndpoint: string;
     statsEndpoint: string;
     lastSeenEndpoint: string;
+    authEndpoint: string;
     timeout: number;
   };
   queue: {

@@ -1,5 +1,6 @@
 import express, { Router, Request, Response, NextFunction } from 'express';
 import { body } from 'express-validator';
+import axios, { AxiosError } from 'axios';
 import feederService from '../services/FeederService';
 import dataIngestionService from '../services/DataIngestionService';
 import statsService from '../services/StatsService';
@@ -10,6 +11,7 @@ import {
   registrationLimiter,
   generalLimiter,
 } from '../middlewares/rateLimiter';
+import config from '../config';
 import { ExpressRequest } from '../types';
 
 const router: Router = express.Router();
@@ -109,13 +111,34 @@ router.get(
         return;
       }
 
-      const feederInfo = await feederService.getFeederInfo(req.feeder.feeder_id);
-      const feederStats = await feederService.getFeederStats(req.feeder.feeder_id);
+      // Forward request to main service
+      const mainServiceUrl = `${config.mainService.url}${config.mainService.authEndpoint}`;
+      const apiKey = req.headers.authorization?.replace('Bearer ', '') || '';
 
-      res.status(200).json({
-        ...feederInfo,
-        stats: feederStats,
-      });
+      try {
+        const response = await axios.get(mainServiceUrl, {
+          timeout: config.mainService.timeout,
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+          },
+        });
+
+        // Return the main service's response
+        res.status(200).json(response.data);
+      } catch (error) {
+        const axiosError = error as AxiosError;
+        
+        if (axiosError.response) {
+          // Forward the main service's error response
+          res.status(axiosError.response.status).json(axiosError.response.data);
+        } else {
+          // Network/timeout error
+          res.status(503).json({
+            success: false,
+            error: 'Main service unavailable',
+          });
+        }
+      }
     } catch (error) {
       next(error);
     }

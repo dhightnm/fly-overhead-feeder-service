@@ -1,8 +1,9 @@
 import { Response, NextFunction } from 'express';
-import postgresRepository from '../repositories/PostgresRepository';
 import authService from '../services/AuthService';
 import logger from '../utils/logger';
+import config from '../config';
 import { FeederData, ExpressRequest } from '../types';
+import axios, { AxiosError } from 'axios';
 
 export async function authenticate(req: ExpressRequest, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -61,22 +62,54 @@ export async function authenticate(req: ExpressRequest, res: Response, next: Nex
 
 async function findFeederByApiKey(apiKey: string): Promise<FeederData | null> {
   try {
-    const query = `
-      SELECT id, feeder_id, api_key_hash, name, status
-      FROM feeders
-      WHERE status IN ('active', 'inactive', 'suspended')
-      LIMIT 1000;
-    `;
-    const feeders = await (postgresRepository as any).db.manyOrNone(query) as FeederData[];
+    // Forward authentication to main service
+    const mainServiceUrl = `${config.mainService.url}${config.mainService.authEndpoint}`;
+    
+    try {
+      const response = await axios.get(mainServiceUrl, {
+        timeout: config.mainService.timeout,
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+        },
+      });
 
-    for (const feeder of feeders) {
-      const isValid = await authService.verifyApiKey(apiKey, feeder.api_key_hash);
-      if (isValid) return feeder;
+      // If main service returns 200, the API key is valid
+      if (response.data && response.data.feeder_id) {
+        return {
+          id: 0, // Not used, main service has the real ID
+          feeder_id: response.data.feeder_id,
+          name: response.data.name || 'Unknown',
+          status: response.data.status || 'active',
+          api_key_hash: '', // Not needed, already validated
+        } as FeederData;
+      }
+      
+      return null;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      
+      if (axiosError.response) {
+        // 401/403 means invalid API key
+        if (axiosError.response.status === 401 || axiosError.response.status === 403) {
+          return null;
+        }
+        // Other errors - log but return null
+        logger.warn('Main service authentication error', {
+          status: axiosError.response.status,
+          feederId: 'unknown',
+        });
+      } else {
+        // Network/timeout error
+        logger.error('Main service unavailable for authentication', {
+          error: axiosError.message,
+        });
+      }
+      
+      return null;
     }
-    return null;
   } catch (error) {
     const err = error as Error;
-    logger.error('Error finding feeder by API key', { error: err.message });
+    logger.error('Error authenticating with main service', { error: err.message });
     return null;
   }
 }

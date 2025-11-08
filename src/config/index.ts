@@ -44,6 +44,7 @@ const config: Config = {
     registerEndpoint: process.env.MAIN_SERVICE_REGISTER_ENDPOINT || '/api/feeder/register',
     statsEndpoint: process.env.MAIN_SERVICE_STATS_ENDPOINT || '/api/feeder/stats',
     lastSeenEndpoint: process.env.MAIN_SERVICE_LAST_SEEN_ENDPOINT || '/api/feeder/last-seen',
+    authEndpoint: process.env.MAIN_SERVICE_AUTH_ENDPOINT || '/api/feeder/me',
     timeout: parseInt(process.env.MAIN_SERVICE_TIMEOUT_MS || '5000', 10),
   },
 
