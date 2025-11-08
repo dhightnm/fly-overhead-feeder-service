@@ -170,7 +170,15 @@ docker network ls | grep fly-overhead-network
 docker network create fly-overhead-network
 ```
 
-### 5.2 Build and Start
+### 5.2 Create Logs Directory
+
+```bash
+# Create logs directory with proper permissions (node user UID 1000)
+mkdir -p logs
+sudo chown -R 1000:1000 logs
+```
+
+### 5.3 Build and Start
 
 ```bash
 # Build and start the service
