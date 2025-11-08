@@ -201,11 +201,9 @@ fi
 
 # Step 3: Install SDK
 echo "📦 Installing SDK..."
-npm install -g @dhightnm/feeder-sdk axios 2>/dev/null || {
-    echo "Installing locally..."
-    mkdir -p ~/feeder-client
-    cd ~/feeder-client
-    npm init -y
+cd ~
+npm install @dhightnm/feeder-sdk axios 2>/dev/null || {
+    echo "Retrying npm install..."
     npm install @dhightnm/feeder-sdk axios
 }
 
