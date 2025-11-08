@@ -188,7 +188,7 @@ docker-compose -f docker-compose.prod.yml up -d --build
 docker-compose -f docker-compose.prod.yml logs -f
 ```
 
-### 5.3 Verify Service is Running
+### 5.4 Verify Service is Running
 
 ```bash
 # Check container status
