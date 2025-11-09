@@ -43,15 +43,19 @@ Environment="FEEDER_API_URL=$FEEDER_API_URL"
 Environment="FEEDER_API_KEY=$FEEDER_API_KEY"
 Environment="DUMP1090_URL=$DUMP1090_URL"
 Environment="POLL_INTERVAL_MS=5000"
+Environment="MAX_MEMORY_MB=200"
+Environment="NODE_OPTIONS=--max-old-space-size=200"
 WorkingDirectory=$HOME
 ExecStart=$(which node) $HOME/feeder-client.js
 Restart=always
-RestartSec=10
+RestartSec=30
 StandardOutput=journal
 StandardError=journal
 StandardInput=null
 TimeoutStartSec=30
-TimeoutStopSec=10
+TimeoutStopSec=30
+MemoryMax=250M
+MemoryHigh=200M
 KillMode=mixed
 KillSignal=SIGTERM
 NoNewPrivileges=true

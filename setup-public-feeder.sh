@@ -215,24 +215,91 @@ cat > ~/feeder-client.js << 'CLIENT_SCRIPT'
 
 const { FeederClient } = require('@dhightnm/feeder-sdk');
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
 
 const FEEDER_API_URL = process.env.FEEDER_API_URL || 'https://api.fly-overhead.com';
 const FEEDER_API_KEY = process.env.FEEDER_API_KEY;
 const DUMP1090_URL = process.env.DUMP1090_URL || 'http://127.0.0.1:8080/data/aircraft.json';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10);
+const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB || '200', 10);
 
 if (!FEEDER_API_KEY) {
   console.error('Error: FEEDER_API_KEY environment variable required');
   process.exit(1);
 }
 
+// Configure HTTP agents with connection limits to prevent FD exhaustion
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 5,
+  maxFreeSockets: 2,
+  timeout: 5000,
+});
+
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  maxSockets: 5,
+  maxFreeSockets: 2,
+  timeout: 5000,
+});
+
 const client = new FeederClient({
   apiUrl: FEEDER_API_URL,
   apiKey: FEEDER_API_KEY,
+  timeout: 8000, // 8 second timeout
+  retryAttempts: 2, // Reduce retries to prevent accumulation
+});
+
+// Configure axios for dump1090 with connection limits
+const dump1090Client = axios.create({
+  timeout: 5000,
+  httpAgent: httpAgent,
+  httpsAgent: httpsAgent,
+  maxRedirects: 3,
 });
 
 let isRunning = true;
 let pollInterval = null;
+let isPolling = false; // Prevent overlapping polls
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 10;
+let lastMemoryCheck = Date.now();
+
+// Memory monitoring
+function checkMemory() {
+  const now = Date.now();
+  if (now - lastMemoryCheck < 60000) return; // Check every minute
+  lastMemoryCheck = now;
+
+  const usage = process.memoryUsage();
+  const heapUsedMB = usage.heapUsed / 1024 / 1024;
+  const rssMB = usage.rss / 1024 / 1024;
+
+  if (rssMB > MAX_MEMORY_MB) {
+    console.error(`Memory usage too high: ${rssMB.toFixed(2)}MB RSS, ${heapUsedMB.toFixed(2)}MB heap`);
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+    }
+    // If still too high, restart
+    if (rssMB > MAX_MEMORY_MB * 1.5) {
+      console.error('Memory critical, exiting for systemd restart');
+      process.exit(1);
+    }
+  }
+}
+
+// Circuit breaker pattern
+function shouldSkipPoll() {
+  if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+    // Wait longer between polls when service is down
+    return Date.now() % 30000 < 5000; // Only poll every 30 seconds
+  }
+  return false;
+}
 
 function feetToMeters(feet) { return feet * 0.3048; }
 function knotsToMetersPerSecond(knots) { return knots * 0.514444; }
@@ -276,50 +343,94 @@ function transformAircraft(aircraft) {
 }
 
 async function pollAndSubmit() {
-  if (!isRunning) return;
+  if (!isRunning || isPolling) return;
   
+  // Circuit breaker
+  if (shouldSkipPoll()) {
+    return;
+  }
+
+  isPolling = true;
+  const startTime = Date.now();
+
   try {
-    const response = await axios.get(DUMP1090_URL, { timeout: 5000 });
+    // Check memory before polling
+    checkMemory();
+
+    const response = await dump1090Client.get(DUMP1090_URL);
     const aircraft = response.data.aircraft || [];
 
-    if (aircraft.length === 0) return;
+    if (aircraft.length === 0) {
+      consecutiveErrors = 0; // Reset on success
+      return;
+    }
 
     const states = aircraft
       .filter(ac => ac.lat !== undefined && ac.lon !== undefined)
       .map(transformAircraft);
 
-    if (states.length === 0) return;
+    if (states.length === 0) {
+      consecutiveErrors = 0;
+      return;
+    }
 
-    const result = await client.submitBatch(states);
-    // Only log submissions if running in foreground (not via systemd)
-    // Systemd will capture logs via journalctl, so we minimize console output
+    // Add timeout wrapper to prevent hanging
+    const submitPromise = client.submitBatch(states);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Submit timeout')), 10000)
+    );
+
+    const result = await Promise.race([submitPromise, timeoutPromise]);
+    
+    consecutiveErrors = 0; // Reset on success
+    
+    const duration = Date.now() - startTime;
+    if (duration > POLL_INTERVAL) {
+      console.error(`Warning: Poll took ${duration}ms (longer than interval ${POLL_INTERVAL}ms)`);
+    }
+
     if (process.stdout.isTTY) {
       console.log(`✓ [${new Date().toISOString()}] Submitted ${result.processed} aircraft`);
     }
   } catch (error) {
-    // Always log errors (they go to systemd journal when running as service)
+    consecutiveErrors++;
     const errorMessage = error.message || 'Unknown error';
-    // Log errors less frequently to avoid spam, but still capture them
-    if (Math.random() < 0.05) { // Log ~5% of errors to reduce noise
+    
+    // Log all errors when service is down
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+      console.error(`✗ Service down (${consecutiveErrors} consecutive errors): ${errorMessage}`);
+    } else if (Math.random() < 0.1) { // Log 10% of other errors
       console.error(`✗ Error: ${errorMessage}`);
     }
+
+    // If too many errors, exit and let systemd restart us
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS * 2) {
+      console.error('Too many consecutive errors, exiting for restart');
+      process.exit(1);
+    }
+  } finally {
+    isPolling = false;
   }
 }
 
 function start() {
-  // Only log startup if running in foreground (not via systemd)
   if (process.stdout.isTTY) {
     console.log('Feeder Client Starting...');
     console.log(`Server: ${FEEDER_API_URL}`);
-    console.log(`Poll interval: ${POLL_INTERVAL}ms\n`);
+    console.log(`Poll interval: ${POLL_INTERVAL}ms`);
+    console.log(`Max memory: ${MAX_MEMORY_MB}MB\n`);
   }
 
-  // Initial poll (non-blocking)
-  pollAndSubmit().catch(() => {});
-
-  // Set up interval
-  pollInterval = setInterval(() => {
+  // Initial poll (non-blocking with timeout)
+  setTimeout(() => {
     pollAndSubmit().catch(() => {});
+  }, 1000);
+
+  // Set up interval with overlap protection
+  pollInterval = setInterval(() => {
+    if (!isPolling) {
+      pollAndSubmit().catch(() => {});
+    }
   }, POLL_INTERVAL);
 }
 
@@ -327,7 +438,6 @@ function shutdown(signal) {
   if (!isRunning) return;
   
   isRunning = false;
-  // Only log shutdown if running in foreground
   if (process.stdout.isTTY) {
     console.log(`\n${signal} received, shutting down...`);
   }
@@ -336,30 +446,35 @@ function shutdown(signal) {
     clearInterval(pollInterval);
     pollInterval = null;
   }
-  
-  // Give a moment for any in-flight requests to complete
+
+  // Close HTTP agents
+  httpAgent.destroy();
+  httpsAgent.destroy();
+
+  // Force exit after timeout
   setTimeout(() => {
+    console.error('Forced shutdown after timeout');
     process.exit(0);
-  }, 1000);
+  }, 5000);
+
+  // Try graceful shutdown
+  process.exit(0);
 }
 
 // Handle signals for graceful shutdown
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// Handle uncaught exceptions to prevent crashes
+// Handle uncaught exceptions - exit after logging
 process.on('uncaughtException', (error) => {
-  // Always log exceptions (they're important)
-  console.error('Uncaught exception:', error.message);
-  // Don't exit - let systemd restart us
+  console.error('Uncaught exception:', error.message, error.stack);
+  // Exit to let systemd restart us
+  setTimeout(() => process.exit(1), 1000);
 });
 
 process.on('unhandledRejection', (reason) => {
-  // Log rejections less frequently to avoid spam
-  if (Math.random() < 0.1) {
-    console.error('Unhandled rejection:', reason);
-  }
-  // Don't exit - continue running
+  console.error('Unhandled rejection:', reason);
+  // Don't exit immediately, but log it
 });
 
 // Start the client
@@ -391,17 +506,22 @@ Environment="FEEDER_API_URL=$FEEDER_API_URL"
 Environment="FEEDER_API_KEY=$FEEDER_API_KEY"
 Environment="DUMP1090_URL=$DUMP1090_URL"
 Environment="POLL_INTERVAL_MS=5000"
+Environment="MAX_MEMORY_MB=200"
+Environment="NODE_OPTIONS=--max-old-space-size=200"
 WorkingDirectory=$HOME
 ExecStart=$(which node) $HOME/feeder-client.js
 Restart=always
-RestartSec=10
+RestartSec=30
 # Run as background daemon - redirect all output to journal
 StandardOutput=journal
 StandardError=journal
 StandardInput=null
 # Prevent the service from hanging
 TimeoutStartSec=30
-TimeoutStopSec=10
+TimeoutStopSec=30
+# Memory limits
+MemoryMax=250M
+MemoryHigh=200M
 # Don't kill the process on stop - let it shutdown gracefully
 KillMode=mixed
 KillSignal=SIGTERM
