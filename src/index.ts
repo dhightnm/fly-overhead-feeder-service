@@ -38,9 +38,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use('/health', healthRoutes);
-app.use('/ready', healthRoutes);
-app.use('/live', healthRoutes);
+app.use('/', healthRoutes);
 app.use('/api/v1/feeders', feederRoutes);
 
 app.get('/setup.sh', (_req: Request, res: Response) => {

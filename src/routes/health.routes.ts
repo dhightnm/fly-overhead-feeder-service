@@ -3,7 +3,7 @@ import postgresRepository from '../repositories/PostgresRepository';
 
 const router: Router = express.Router();
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/health', async (_req: Request, res: Response) => {
   const health: {
     status: string;
     timestamp: string;
