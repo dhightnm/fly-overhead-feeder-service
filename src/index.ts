@@ -218,30 +218,41 @@ app.use(errorHandler);
 
 async function startServer(): Promise<void> {
   try {
-    const connected = await postgresRepository.connect();
-    if (!connected) {
-      logger.error('Failed to connect to database. Exiting...');
-      process.exit(1);
-    }
-
-    // Log feeder activity summary on startup
+    // Try to connect to database, but don't fail if unavailable
+    // Database is only used for read operations (stats, health checks)
+    // All writes are forwarded to main service
     try {
-      const summary = await postgresRepository.getFeederActivitySummary(24);
-      logger.info('Feeder activity summary (last 24h)', {
-        totalFeeders: summary.totalFeeders,
-        activeFeeders: summary.activeFeeders,
-        feeders: summary.feeders.map(f => ({
-          id: f.feeder_id,
-          name: f.name,
-          status: f.status,
-          lastSeen: f.last_seen_at ? `${Math.round(f.minutes_since_last_seen || 0)}m ago` : 'Never',
-          messages24h: f.messages_24h,
-          uniqueAircraft24h: f.unique_aircraft_24h,
-        })),
-      });
+      const connected = await postgresRepository.connect();
+      if (connected) {
+        logger.info('Database connected (optional - used for stats/health checks only)');
+        
+        // Log feeder activity summary on startup (non-critical)
+        try {
+          const summary = await postgresRepository.getFeederActivitySummary(24);
+          logger.info('Feeder activity summary (last 24h)', {
+            totalFeeders: summary.totalFeeders,
+            activeFeeders: summary.activeFeeders,
+            feeders: summary.feeders.map(f => ({
+              id: f.feeder_id,
+              name: f.name,
+              status: f.status,
+              lastSeen: f.last_seen_at ? `${Math.round(f.minutes_since_last_seen || 0)}m ago` : 'Never',
+              messages24h: f.messages_24h,
+              uniqueAircraft24h: f.unique_aircraft_24h,
+            })),
+          });
+        } catch (error) {
+          // Non-critical, just log warning
+          logger.warn('Could not fetch feeder activity summary', {
+            error: (error as Error).message,
+          });
+        }
+      } else {
+        logger.warn('Database not available - service will continue without database (all operations forwarded to main service)');
+      }
     } catch (error) {
-      // Non-critical, just log warning
-      logger.warn('Could not fetch feeder activity summary', {
+      // Database connection failed, but service can still operate
+      logger.warn('Database connection failed - service will continue without database', {
         error: (error as Error).message,
       });
     }

@@ -102,7 +102,15 @@ class FeederService {
 
   async getFeederInfo(feederId: string): Promise<Partial<FeederData>> {
     try {
-      const feeder = await postgresRepository.getFeederById(feederId);
+      // Try to get feeder from database if available (optional)
+      let feeder = null;
+      if (postgresRepository.isConnected) {
+        try {
+          feeder = await postgresRepository.getFeederById(feederId);
+        } catch (error) {
+          // Database error, continue without feeder info
+        }
+      }
 
       if (!feeder) {
         const error = new Error('Feeder not found') as AppError;

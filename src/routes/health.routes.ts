@@ -1,6 +1,5 @@
 import express, { Router, Request, Response } from 'express';
 import postgresRepository from '../repositories/PostgresRepository';
-import logger from '../utils/logger';
 
 const router: Router = express.Router();
 
@@ -22,17 +21,19 @@ router.get('/', async (_req: Request, res: Response) => {
     checks: {},
   };
 
+  // Database is optional - service can operate without it
   try {
-    const dbHealthy = await postgresRepository.healthCheck();
-    health.checks.database = dbHealthy ? 'connected' : 'disconnected';
-    if (!dbHealthy) {
-      health.status = 'degraded';
+    if (postgresRepository.isConnected) {
+      const dbHealthy = await postgresRepository.healthCheck();
+      health.checks.database = dbHealthy ? 'connected' : 'disconnected';
+      // Don't mark as degraded - database is optional
+    } else {
+      health.checks.database = 'not_connected';
+      // Service is still healthy without database
     }
   } catch (error) {
-    const err = error as Error;
-    logger.error('Health check database error', { error: err.message });
     health.checks.database = 'error';
-    health.status = 'degraded';
+    // Don't mark as degraded - database is optional
   }
 
   const memUsage = process.memoryUsage();
@@ -47,30 +48,13 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 router.get('/ready', async (_req: Request, res: Response) => {
-  try {
-    const dbHealthy = await postgresRepository.healthCheck();
-
-    if (dbHealthy) {
-      res.status(200).json({
-        ready: true,
-        timestamp: new Date().toISOString(),
-      });
-    } else {
-      res.status(503).json({
-        ready: false,
-        reason: 'Database not connected',
-        timestamp: new Date().toISOString(),
-      });
-    }
-  } catch (error) {
-    const err = error as Error;
-    logger.error('Readiness probe failed', { error: err.message });
-    res.status(503).json({
-      ready: false,
-      reason: 'Health check failed',
-      timestamp: new Date().toISOString(),
-    });
-  }
+  // Service is ready if it can forward requests to main service
+  // Database is optional for read operations only
+  res.status(200).json({
+    ready: true,
+    timestamp: new Date().toISOString(),
+    note: 'Database optional - all writes forwarded to main service',
+  });
 });
 
 router.get('/live', (_req: Request, res: Response) => {

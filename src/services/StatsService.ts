@@ -45,6 +45,22 @@ interface FeederHealthResponse {
 class StatsService {
   async getFeederStatistics(feederId: string, days: number = 7): Promise<FeederStatisticsResponse> {
     try {
+      // Try to get stats from database, but return empty if unavailable
+      // Stats should ideally come from main service
+      if (!postgresRepository.isConnected) {
+        return {
+          feeder_id: feederId,
+          period_days: days,
+          statistics: [],
+          summary: {
+            total_messages: 0,
+            total_unique_aircraft: 0,
+            avg_daily_messages: 0,
+            avg_data_quality: 0,
+          },
+        };
+      }
+      
       const stats = await postgresRepository.getFeederStatsLastNDays(feederId, days);
 
       if (stats.length === 0) {
@@ -140,9 +156,19 @@ class StatsService {
     };
   }> {
     try {
-      // Get recent stats
-      const stats24h = await postgresRepository.getFeederStatsLastNDays(feederId, 1);
-      const stats7d = await postgresRepository.getFeederStatsLastNDays(feederId, 7);
+      // Get recent stats (if database available)
+      let stats24h: any[] = [];
+      let stats7d: any[] = [];
+      
+      if (postgresRepository.isConnected) {
+        try {
+          stats24h = await postgresRepository.getFeederStatsLastNDays(feederId, 1);
+          stats7d = await postgresRepository.getFeederStatsLastNDays(feederId, 7);
+        } catch (error) {
+          // Database error, continue with empty stats
+          logger.warn('Could not fetch stats from database', { error: (error as Error).message });
+        }
+      }
 
       // Calculate metrics
       const avgQuality24h = stats24h.length > 0 && stats24h[0].data_quality_score !== null
@@ -168,7 +194,14 @@ class StatsService {
       const accuracy = avgQuality24h !== null && avgQuality24h !== undefined ? avgQuality24h : 50;
 
       // Calculate timeliness (how recent is the data)
-      const feeder = await postgresRepository.getFeederById(feederId);
+      let feeder = null;
+      if (postgresRepository.isConnected) {
+        try {
+          feeder = await postgresRepository.getFeederById(feederId);
+        } catch (error) {
+          // Database error, continue without feeder info
+        }
+      }
       const minutesSinceLastSeen = feeder?.last_seen_at
         ? Math.floor((Date.now() - new Date(feeder.last_seen_at).getTime()) / 60000)
         : null;
@@ -259,12 +292,26 @@ class StatsService {
 
   async getFeederHealth(feederId: string): Promise<FeederHealthResponse> {
     try {
-      const feeder = await postgresRepository.getFeederById(feederId);
+      // Try to get feeder from database if available (optional)
+      let feeder = null;
+      if (postgresRepository.isConnected) {
+        try {
+          feeder = await postgresRepository.getFeederById(feederId);
+        } catch (error) {
+          // Database error, continue without feeder info
+        }
+      }
 
       if (!feeder) {
-        const error = new Error('Feeder not found') as AppError;
-        error.statusCode = 404;
-        throw error;
+        // Return default health status if database unavailable
+        return {
+          feeder_id: feederId,
+          status: 'unknown',
+          health: 'unknown',
+          last_seen_at: null,
+          minutes_since_last_seen: null,
+          location: null,
+        };
       }
 
       const now = new Date();
