@@ -72,7 +72,7 @@ export class FeederClient {
     for (let attempt = 0; attempt < this.config.retryAttempts; attempt++) {
       try {
         const response = await this.api.post<DataSubmissionResponse>(
-          '/api/feeder/aircraft',
+          '/api/v1/feeders/data',
           payload
         );
         return response.data;

@@ -1,6 +1,6 @@
 {
   "name": "@dhightnm/feeder-sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Plug-and-play SDK for connecting ADS-B feeders to fly-overhead service",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -44,4 +44,3 @@
     "node": ">=14.0.0"
   }
 }
-

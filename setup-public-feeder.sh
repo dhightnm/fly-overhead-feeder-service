@@ -304,7 +304,7 @@ npm install @dhightnm/feeder-sdk axios 2>/dev/null || {
 
 echo ""
 echo "📝 Creating client script..."
-cat > ~/feeder-client.js << CLIENT_SCRIPT
+cat > ~/feeder-client.js << 'CLIENT_SCRIPT'
 #!/usr/bin/env node
 
 const { FeederClient } = require('@dhightnm/feeder-sdk');
@@ -312,9 +312,9 @@ const axios = require('axios');
 const http = require('http');
 const https = require('https');
 
-const FEEDER_API_URL = process.env.FEEDER_API_URL || '$FEEDER_API_URL';
+const FEEDER_API_URL = process.env.FEEDER_API_URL || 'FEEDER_API_URL_PLACEHOLDER';
 const FEEDER_API_KEY = process.env.FEEDER_API_KEY;
-const DUMP1090_URL = process.env.DUMP1090_URL || '$DUMP1090_URL';
+const DUMP1090_URL = process.env.DUMP1090_URL || 'DUMP1090_URL_PLACEHOLDER';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10);
 const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB || '200', 10);
 
@@ -574,6 +574,10 @@ process.on('unhandledRejection', (reason) => {
 // Start the client
 start();
 CLIENT_SCRIPT
+
+# Replace placeholders with actual values
+sed -i "s|FEEDER_API_URL_PLACEHOLDER|$FEEDER_API_URL|g" ~/feeder-client.js
+sed -i "s|DUMP1090_URL_PLACEHOLDER|$DUMP1090_URL|g" ~/feeder-client.js
 
 chmod +x ~/feeder-client.js
 
