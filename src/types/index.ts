@@ -40,6 +40,7 @@ export interface FeederData {
   latitude?: number;
   longitude?: number;
   status: 'active' | 'inactive' | 'suspended';
+  tier?: 'production' | 'standard' | 'premium'; // API tier for rate limiting
   metadata: Record<string, any>;
   created_at: Date;
   updated_at: Date;
@@ -141,6 +142,11 @@ export interface Config {
   rateLimit: {
     windowMs: number;
     maxRequests: number;
+    tiers: {
+      production: number;
+      standard: number;
+      premium: number;
+    };
   };
   dataProcessing: {
     batchSize: number;
@@ -154,6 +160,8 @@ export interface Config {
     statsEndpoint: string;
     lastSeenEndpoint: string;
     authEndpoint: string;
+    loginEndpoint: string;
+    googleAuthEndpoint: string;
     timeout: number;
   };
   queue: {
@@ -170,6 +178,7 @@ export interface ExpressRequest extends Request {
     id: number;
     feeder_id: string;
     name: string;
-    status: string;
+    status: 'active' | 'inactive' | 'suspended';
+    tier?: 'production' | 'standard' | 'premium';
   };
 }

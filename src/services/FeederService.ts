@@ -13,7 +13,10 @@ interface AppError extends Error {
 }
 
 class FeederService {
-  async registerFeeder(data: FeederRegistrationData): Promise<{ feeder_id: string; api_key: string; message: string }> {
+  async registerFeeder(
+    data: FeederRegistrationData,
+    userJwtToken?: string
+  ): Promise<{ feeder_id: string; api_key: string; message: string; linked_to_user?: boolean; user_id?: number }> {
     // Validate input
     const { valid, errors } = validateFeederRegistration(data);
     if (!valid) {
@@ -44,6 +47,7 @@ class FeederService {
       const payload = {
         feeder_id: feederId,
         api_key_hash: apiKeyHash,
+        key_prefix: 'fd_', // Use fd_ prefix for feeder keys
         name: feederData.name,
         ...(feederData.location ? {
           latitude: feederData.location.latitude,
@@ -52,16 +56,33 @@ class FeederService {
         metadata: feederData.metadata,
       };
 
+      // Prepare headers - include JWT token if provided for user account linking
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (userJwtToken) {
+        headers['Authorization'] = `Bearer ${userJwtToken}`;
+      }
+
       try {
-        await axios.post(mainServiceUrl, payload, {
+        const response = await axios.post(mainServiceUrl, payload, {
           timeout: config.mainService.timeout,
-          headers: { 'Content-Type': 'application/json' },
+          headers,
         });
+
+        // Check if feeder was linked to user account
+        const linkedToUser = response.data?.linked_to_user === true;
+        const userId = response.data?.user_id || undefined;
 
         return {
           feeder_id: feederId,
           api_key: apiKey,
-          message: 'Store this API key securely. It will not be shown again.',
+          message: linkedToUser
+            ? 'Feeder registered successfully and linked to your account. Store this API key securely.'
+            : 'Store this API key securely. It will not be shown again.',
+          linked_to_user: linkedToUser,
+          user_id: userId,
         };
       } catch (error) {
         const axiosError = error as AxiosError;

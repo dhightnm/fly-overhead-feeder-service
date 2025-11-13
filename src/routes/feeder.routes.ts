@@ -7,11 +7,11 @@ import statsService from '../services/StatsService';
 import { authenticate } from '../middlewares/auth';
 import { handleValidationErrors } from '../middlewares/validator';
 import {
-  dataIngestionLimiter,
   registrationLimiter,
   generalLimiter,
 } from '../middlewares/rateLimiter';
 import config from '../config';
+import logger from '../utils/logger';
 import { ExpressRequest } from '../types';
 
 const router: Router = express.Router();
@@ -42,7 +42,13 @@ router.post(
   handleValidationErrors,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await feederService.registerFeeder(req.body);
+      // Extract optional JWT token from Authorization header for user account linking
+      const authHeader = req.headers.authorization;
+      const userJwtToken = authHeader && authHeader.startsWith('Bearer ') 
+        ? authHeader.substring(7) 
+        : undefined;
+      
+      const result = await feederService.registerFeeder(req.body, userJwtToken);
       res.status(201).json(result);
     } catch (error) {
       next(error);
@@ -53,7 +59,8 @@ router.post(
 router.post(
   '/data',
   authenticate,
-  dataIngestionLimiter,
+  // No rate limiting on data ingestion - feeders can submit unlimited data
+  // Tier-based limits only apply to other API operations (stats, health, etc.)
   [
     body('timestamp')
       .optional()
@@ -81,9 +88,22 @@ router.post(
         return;
       }
 
+      // Extract API key from Authorization header to forward to main service
+      const authHeader = req.headers.authorization;
+      const apiKey = authHeader?.replace('Bearer ', '') || '';
+      
+      logger.info('📡 Feeder data endpoint called', {
+        feederId: req.feeder.feeder_id,
+        feederName: req.feeder.name,
+        stateCount: req.body.states?.length || 0,
+        hasApiKey: !!apiKey,
+        ip: req.ip || req.connection.remoteAddress,
+      });
+
       const result = await dataIngestionService.ingestData(
         req.feeder.feeder_id,
-        req.body
+        req.body,
+        apiKey
       );
 
       feederService.updateLastSeen(req.feeder.feeder_id).catch(() => {

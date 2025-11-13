@@ -11,10 +11,16 @@ interface AppError extends Error {
 }
 
 class DataIngestionService {
-  async ingestData(feederId: string, data: DataSubmissionPayload): Promise<DataSubmissionResponse> {
+  async ingestData(feederId: string, data: DataSubmissionPayload, apiKey?: string): Promise<DataSubmissionResponse> {
     const startTime = Date.now();
 
-    // Validate input
+    logger.info('📥 Data submission received from feeder', {
+      feederId,
+      aircraftCount: data.states?.length || 0,
+      hasApiKey: !!apiKey,
+      timestamp: data.timestamp || Math.floor(Date.now() / 1000),
+    });
+
     if (!data.states || !Array.isArray(data.states)) {
       const error = new Error('Invalid data format: states must be an array') as AppError;
       error.statusCode = 400;
@@ -30,7 +36,6 @@ class DataIngestionService {
       };
     }
 
-    // Validate batch
     const { valid, errors: validationErrors } = validateAircraftStateBatch(data.states);
 
     if (!valid) {
@@ -117,15 +122,27 @@ class DataIngestionService {
       let errors: Array<{ icao24?: string; error: string }> = [];
 
       try {
-        // POST to main service
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        
+        logger.info('🚀 Forwarding data to main service', {
+          feederId,
+          stateCount: transformedStates.length,
+          mainServiceUrl,
+          hasAuthHeader: !!headers['Authorization'],
+          apiKeyPrefix: apiKey ? apiKey.substring(0, 3) + '...' : 'none',
+        });
+        
         const response = await axios.post(mainServiceUrl, payload, {
           timeout: config.mainService.timeout,
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
         });
 
-        // Handle response from main service
         if (response.data && typeof response.data === 'object') {
           processed = response.data.processed || transformedStates.length;
           
@@ -133,28 +150,29 @@ class DataIngestionService {
             errors = response.data.errors;
           }
         } else {
-          // Assume all processed if no error response
           processed = transformedStates.length;
         }
 
         const processingTime = Date.now() - startTime;
 
-        logger.info('Data forwarded to main service', {
+        logger.info('✅ Data successfully forwarded to main service', {
           feederId,
           submitted: data.states.length,
           processed,
           processingTimeMs: processingTime,
-          aircraft: transformedStates.slice(0, 5).map(s => ({
+          mainServiceResponse: {
+            status: response.status,
+            processed: response.data?.processed,
+            errors: response.data?.errors?.length || 0,
+          },
+          sampleAircraft: transformedStates.slice(0, 3).map(s => ({
             icao24: s.state[0],
             callsign: s.state[1] || null,
             alt: s.state[7] ? Math.round(s.state[7]) : null,
           })),
         });
 
-        // Update stats (fire and forget)
-        this.updateFeederStats(feederId, processed, data.states.length).catch(() => {
-          // Non-critical, silently fail
-        });
+        this.updateFeederStats(feederId, processed, data.states.length).catch(() => {});
 
         return {
           success: errors.length === 0,
@@ -167,10 +185,13 @@ class DataIngestionService {
         const axiosError = error as AxiosError;
 
         if (axiosError.response) {
-          logger.error('Main service returned error', {
+          logger.error('❌ Main service returned error', {
             feederId,
             status: axiosError.response.status,
+            statusText: axiosError.response.statusText,
             data: axiosError.response.data,
+            url: mainServiceUrl,
+            hadAuthHeader: !!apiKey,
           });
 
           // Try to extract error details from response
@@ -190,9 +211,18 @@ class DataIngestionService {
             throw appError;
           }
         } else if (axiosError.request) {
-          logger.error('Main service unavailable', {
+          logger.error('❌ Main service unavailable (network error)', {
             feederId,
             error: axiosError.message,
+            code: axiosError.code,
+            url: mainServiceUrl,
+            timeout: config.mainService.timeout,
+          });
+        } else {
+          logger.error('❌ Error setting up request to main service', {
+            feederId,
+            error: axiosError.message,
+            stack: axiosError.stack,
           });
         }
 

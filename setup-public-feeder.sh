@@ -11,14 +11,62 @@ echo ""
 echo "This script will help you connect your feeder to Fly Overhead."
 echo ""
 
-# Configuration
-FEEDER_API_URL="${FEEDER_API_URL:-https://api.fly-overhead.com}"
-DUMP1090_URL="${DUMP1090_URL:-http://127.0.0.1:8080/data/aircraft.json}"
+if [ -z "$FEEDER_API_URL" ]; then
+    if [ -t 0 ]; then
+        SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+        if [[ "$SCRIPT_SOURCE" == *"feederservice"* ]] || [[ "$SCRIPT_SOURCE" == *"feeder"* ]]; then
+            FEEDER_API_URL=$(echo "$SCRIPT_SOURCE" | sed -E 's|(https?://[^/]+).*|\1|')
+        fi
+    fi
+    
+    if [ -z "$FEEDER_API_URL" ]; then
+        if hostname | grep -qi "feeder\|piaware"; then
+            if curl -s --max-time 2 "http://localhost:3006/health" > /dev/null 2>&1; then
+                FEEDER_API_URL="http://localhost:3006"
+            elif curl -s --max-time 2 "https://feederservice.f199m4bz801f2.us-east-2.cs.amazonlightsail.com/health" > /dev/null 2>&1; then
+                FEEDER_API_URL="https://feederservice.f199m4bz801f2.us-east-2.cs.amazonlightsail.com"
+            fi
+        fi
+    fi
+    
+    if [ -z "$FEEDER_API_URL" ]; then
+        FEEDER_API_URL="https://api.fly-overhead.com"
+    fi
+fi
 
-# Step 1: Check prerequisites
+if [ -z "$DUMP1090_URL" ]; then
+    DUMP1090_URL=""
+    DUMP1090_CANDIDATES=(
+        "http://127.0.0.1:8080/data/aircraft.json"
+        "http://localhost:8080/data/aircraft.json"
+        "http://127.0.0.1:8080/data.json"
+        "http://localhost:8080/data.json"
+        "http://127.0.0.1:30003"
+        "http://localhost:30003"
+    )
+    
+    echo "🔍 Auto-detecting dump1090 location..."
+    for url in "${DUMP1090_CANDIDATES[@]}"; do
+        if curl -s --max-time 2 "$url" > /dev/null 2>&1; then
+            DUMP1090_URL="$url"
+            echo "   ✅ Found dump1090 at: $url"
+            break
+        fi
+    done
+    
+    if [ -z "$DUMP1090_URL" ]; then
+        DUMP1090_URL="http://127.0.0.1:8080/data/aircraft.json"
+        echo "   ⚠️  Could not auto-detect, using default: $DUMP1090_URL"
+    fi
+fi
+
+echo ""
+echo "📋 Configuration:"
+echo "   Feeder API URL: $FEEDER_API_URL"
+echo "   Dump1090 URL: $DUMP1090_URL"
+echo ""
+
 echo "📋 Checking prerequisites..."
-
-# Check Node.js
 if ! command -v node &> /dev/null; then
     echo "⚠️  Node.js not found. Installing..."
     if [ -f /etc/debian_version ]; then
@@ -32,14 +80,27 @@ else
     echo "✅ Node.js $(node --version) found"
 fi
 
-# Check dump1090
+# Verify dump1090 is accessible
 echo ""
-echo "🔍 Checking for dump1090..."
-if curl -s "$DUMP1090_URL" > /dev/null 2>&1; then
-    echo "✅ dump1090 found at $DUMP1090_URL"
+echo "🔍 Verifying dump1090 connection..."
+if curl -s --max-time 3 "$DUMP1090_URL" > /dev/null 2>&1; then
+    echo "✅ dump1090 accessible at $DUMP1090_URL"
 else
-    echo "⚠️  Could not connect to dump1090 at $DUMP1090_URL"
-    echo "   Make sure dump1090 is running and update DUMP1090_URL if needed"
+    echo "⚠️  ⚠️  Could not connect to dump1090 at $DUMP1090_URL"
+    echo ""
+    echo "   Common dump1090 locations:"
+    echo "   - http://127.0.0.1:8080/data/aircraft.json (PiAware)"
+    echo "   - http://127.0.0.1:8080/data.json"
+    echo "   - http://localhost:8080/data/aircraft.json"
+    echo ""
+    read -p "Enter dump1090 URL (or press Enter to use default): " CUSTOM_DUMP1090_URL
+    if [ ! -z "$CUSTOM_DUMP1090_URL" ]; then
+        DUMP1090_URL="$CUSTOM_DUMP1090_URL"
+        echo "   Using: $DUMP1090_URL"
+    else
+        echo "   Using default: $DUMP1090_URL"
+    fi
+    echo ""
     read -p "Continue anyway? (y/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -68,17 +129,12 @@ if [ -f ~/feeder-client.js ] || [ -f ~/piaware-feeder-client.js ]; then
     echo "⚠️  Found existing client script(s)"
     echo "   Old script(s) will be backed up and replaced"
     
-    # Try to extract API key from old scripts
     EXTRACTED_API_KEY=""
     if [ -f ~/piaware-feeder-client.js ]; then
-        # Look for API key in old script (multiple patterns)
-        # Pattern 1: apiKey: process.env.FEEDER_API_KEY || 'sk_live_...'
         EXTRACTED_API_KEY=$(grep -oE "['\"]sk_live_[^'\"]{40,}" ~/piaware-feeder-client.js 2>/dev/null | head -1 | tr -d "'\"" || echo "")
-        # Pattern 2: FEEDER_API_KEY = 'sk_live_...' or apiKey: 'sk_live_...'
         if [ -z "$EXTRACTED_API_KEY" ]; then
             EXTRACTED_API_KEY=$(grep -oE "(FEEDER_API_KEY|apiKey|API_KEY)\s*[=:]\s*['\"]?sk_live_[^'\"]{40,}" ~/piaware-feeder-client.js 2>/dev/null | head -1 | sed -E "s/.*['\"]?(sk_live_[^'\"]{40,}).*/\1/" || echo "")
         fi
-        # Pattern 3: Any long string that looks like an API key (starts with sk_)
         if [ -z "$EXTRACTED_API_KEY" ]; then
             EXTRACTED_API_KEY=$(grep -oE "['\"]sk_[^'\"]{40,}" ~/piaware-feeder-client.js 2>/dev/null | head -1 | tr -d "'\"" || echo "")
         fi
@@ -87,7 +143,6 @@ if [ -f ~/feeder-client.js ] || [ -f ~/piaware-feeder-client.js ]; then
     fi
     if [ -f ~/feeder-client.js ]; then
         if [ -z "$EXTRACTED_API_KEY" ]; then
-            # Same patterns for feeder-client.js
             EXTRACTED_API_KEY=$(grep -oE "['\"]sk_live_[^'\"]{40,}" ~/feeder-client.js 2>/dev/null | head -1 | tr -d "'\"" || echo "")
         fi
         if [ -z "$EXTRACTED_API_KEY" ]; then
@@ -112,12 +167,10 @@ if [ -f ~/feeder-client.js ] || [ -f ~/piaware-feeder-client.js ]; then
     fi
 fi
 
-# Step 2: Register feeder or use existing API key
 echo ""
 echo "📝 Feeder Registration"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Check if user wants to use existing API key
 USE_EXISTING_KEY=false
 if [ "$EXISTING_SERVICE" = true ] || [ ! -z "$FOUND_API_KEY" ]; then
     if [ ! -z "$FOUND_API_KEY" ]; then
@@ -145,7 +198,6 @@ if [ "$EXISTING_SERVICE" = true ] || [ ! -z "$FOUND_API_KEY" ]; then
     
     if [ "$USE_EXISTING_KEY" = true ]; then
         echo "✅ Using existing API key"
-        # Try to get feeder info to validate key
         FEEDER_INFO=$(curl -s -X GET "$FEEDER_API_URL/api/v1/feeders/me" \
           -H "Authorization: Bearer $FEEDER_API_KEY" 2>/dev/null || echo "")
         if [ ! -z "$FEEDER_INFO" ] && echo "$FEEDER_INFO" | grep -q "feeder_id"; then
@@ -163,11 +215,41 @@ if [ "$USE_EXISTING_KEY" = false ]; then
     read -p "Feeder name: " FEEDER_NAME
     read -p "Latitude (optional, press Enter to skip): " LATITUDE
     read -p "Longitude (optional, press Enter to skip): " LONGITUDE
+    
+    # Optional: User account linking
+    echo ""
+    echo "🔗 User Account Linking (Optional)"
+    echo "   Link this feeder to your Fly Overhead account to manage it in your dashboard."
+    read -p "Do you want to link this feeder to your account? (y/N) " -n 1 -r
+    echo
+    
+    USER_JWT_TOKEN=""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "   Please log in to your Fly Overhead account:"
+        read -p "   Email: " USER_EMAIL
+        read -sp "   Password: " USER_PASSWORD
+        echo ""
+        
+        # Attempt to login
+        MAIN_SERVICE_URL="${MAIN_SERVICE_URL:-${FEEDER_API_URL}}"
+        LOGIN_RESPONSE=$(curl -s -X POST "${MAIN_SERVICE_URL}/api/auth/login" \
+          -H "Content-Type: application/json" \
+          -d "{\"email\":\"$USER_EMAIL\",\"password\":\"$USER_PASSWORD\"}")
+        
+        # Extract JWT token
+        USER_JWT_TOKEN=$(echo "$LOGIN_RESPONSE" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+        
+        if [ ! -z "$USER_JWT_TOKEN" ]; then
+            echo "   ✅ Logged in successfully! Feeder will be linked to your account."
+        else
+            echo "   ⚠️  Login failed. Creating standalone feeder (can be linked later)."
+            USER_JWT_TOKEN=""
+        fi
+    fi
 fi
 
-# Register new feeder if not using existing key
 if [ "$USE_EXISTING_KEY" = false ]; then
-    # Build registration payload
     REGISTRATION_PAYLOAD="{\"name\":\"$FEEDER_NAME\""
     if [ ! -z "$LATITUDE" ] && [ ! -z "$LONGITUDE" ]; then
         REGISTRATION_PAYLOAD="$REGISTRATION_PAYLOAD,\"location\":{\"latitude\":$LATITUDE,\"longitude\":$LONGITUDE}"
@@ -176,11 +258,18 @@ if [ "$USE_EXISTING_KEY" = false ]; then
 
     echo ""
     echo "📡 Registering feeder..."
-    REGISTRATION_RESPONSE=$(curl -s -X POST "$FEEDER_API_URL/api/v1/feeders/register" \
-      -H "Content-Type: application/json" \
-      -d "$REGISTRATION_PAYLOAD")
+    
+    if [ ! -z "$USER_JWT_TOKEN" ]; then
+        REGISTRATION_RESPONSE=$(curl -s -X POST "$FEEDER_API_URL/api/v1/feeders/register" \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $USER_JWT_TOKEN" \
+          -d "$REGISTRATION_PAYLOAD")
+    else
+        REGISTRATION_RESPONSE=$(curl -s -X POST "$FEEDER_API_URL/api/v1/feeders/register" \
+          -H "Content-Type: application/json" \
+          -d "$REGISTRATION_PAYLOAD")
+    fi
 
-    # Extract API key
     FEEDER_API_KEY=$(echo "$REGISTRATION_RESPONSE" | grep -o '"api_key":"[^"]*' | cut -d'"' -f4)
     FEEDER_ID=$(echo "$REGISTRATION_RESPONSE" | grep -o '"feeder_id":"[^"]*' | cut -d'"' -f4)
 
@@ -190,16 +279,22 @@ if [ "$USE_EXISTING_KEY" = false ]; then
         exit 1
     fi
 
+    LINKED_TO_USER=$(echo "$REGISTRATION_RESPONSE" | grep -o '"linked_to_user":true' || echo "")
+    
     echo "✅ Feeder registered!"
     echo "   Feeder ID: $FEEDER_ID"
     echo "   API Key: ${FEEDER_API_KEY:0:20}..."
+    if [ ! -z "$LINKED_TO_USER" ]; then
+        echo "   ✅ Linked to your account - view it in your dashboard!"
+    else
+        echo "   ℹ️  Standalone feeder (can be linked to your account later)"
+    fi
     echo ""
     echo "⚠️  IMPORTANT: Save your API key! It won't be shown again."
     echo "   API Key: $FEEDER_API_KEY"
     echo ""
 fi
 
-# Step 3: Install SDK
 echo "📦 Installing SDK..."
 cd ~
 npm install @dhightnm/feeder-sdk axios 2>/dev/null || {
@@ -207,10 +302,9 @@ npm install @dhightnm/feeder-sdk axios 2>/dev/null || {
     npm install @dhightnm/feeder-sdk axios
 }
 
-# Step 4: Create client script
 echo ""
 echo "📝 Creating client script..."
-cat > ~/feeder-client.js << 'CLIENT_SCRIPT'
+cat > ~/feeder-client.js << CLIENT_SCRIPT
 #!/usr/bin/env node
 
 const { FeederClient } = require('@dhightnm/feeder-sdk');
@@ -218,9 +312,9 @@ const axios = require('axios');
 const http = require('http');
 const https = require('https');
 
-const FEEDER_API_URL = process.env.FEEDER_API_URL || 'https://api.fly-overhead.com';
+const FEEDER_API_URL = process.env.FEEDER_API_URL || '$FEEDER_API_URL';
 const FEEDER_API_KEY = process.env.FEEDER_API_KEY;
-const DUMP1090_URL = process.env.DUMP1090_URL || 'http://127.0.0.1:8080/data/aircraft.json';
+const DUMP1090_URL = process.env.DUMP1090_URL || '$DUMP1090_URL';
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '5000', 10);
 const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB || '200', 10);
 
@@ -483,14 +577,10 @@ CLIENT_SCRIPT
 
 chmod +x ~/feeder-client.js
 
-# Step 5: Test (non-blocking, optional)
-# Note: Test section is commented out to prevent issues when piped through bash
-# Users can test manually after setup completes
 echo ""
 echo "🧪 Test: Skipped (will verify after service starts)"
 echo ""
 
-# Step 6: Create systemd service
 echo ""
 echo "🔧 Setting up auto-start service..."
 sudo tee /etc/systemd/system/fly-overhead-feeder.service > /dev/null << EOF
@@ -512,27 +602,21 @@ WorkingDirectory=$HOME
 ExecStart=$(which node) $HOME/feeder-client.js
 Restart=always
 RestartSec=30
-# Run as background daemon - redirect all output to journal
 StandardOutput=journal
 StandardError=journal
 StandardInput=null
-# Prevent the service from hanging
 TimeoutStartSec=30
 TimeoutStopSec=30
-# Memory limits
 MemoryMax=250M
 MemoryHigh=200M
-# Don't kill the process on stop - let it shutdown gracefully
 KillMode=mixed
 KillSignal=SIGTERM
-# Run in background, detached from terminal
 NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Configure systemd journal limits (required for log rotation on Pi)
 echo ""
 echo "📋 Configuring systemd journal limits..."
 sudo mkdir -p /etc/systemd/journald.conf.d
@@ -544,11 +628,9 @@ SystemMaxFileSize=5M
 MaxRetentionSec=12h
 JOURNALCONF
 
-# Enable and start
 sudo systemctl daemon-reload
 sudo systemctl restart systemd-journald
 
-# Stop existing service if running (in case of update)
 if systemctl is-active --quiet fly-overhead-feeder 2>/dev/null; then
     sudo systemctl stop fly-overhead-feeder 2>/dev/null || true
 fi

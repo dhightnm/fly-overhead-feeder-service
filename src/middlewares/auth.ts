@@ -50,6 +50,7 @@ export async function authenticate(req: ExpressRequest, res: Response, next: Nex
       feeder_id: feeder.feeder_id,
       name: feeder.name,
       status: feeder.status,
+      tier: feeder.tier || 'production', // Default to production tier for existing keys
     };
 
     next();
@@ -62,7 +63,6 @@ export async function authenticate(req: ExpressRequest, res: Response, next: Nex
 
 async function findFeederByApiKey(apiKey: string): Promise<FeederData | null> {
   try {
-    // Forward authentication to main service
     const mainServiceUrl = `${config.mainService.url}${config.mainService.authEndpoint}`;
     
     try {
@@ -73,14 +73,16 @@ async function findFeederByApiKey(apiKey: string): Promise<FeederData | null> {
         },
       });
 
-      // If main service returns 200, the API key is valid
       if (response.data && response.data.feeder_id) {
+        const tier = response.data.tier || 'production';
+        
         return {
-          id: 0, // Not used, main service has the real ID
+          id: 0,
           feeder_id: response.data.feeder_id,
           name: response.data.name || 'Unknown',
           status: response.data.status || 'active',
-          api_key_hash: '', // Not needed, already validated
+          tier: tier as 'production' | 'standard' | 'premium',
+          api_key_hash: '',
         } as FeederData;
       }
       
@@ -89,17 +91,14 @@ async function findFeederByApiKey(apiKey: string): Promise<FeederData | null> {
       const axiosError = error as AxiosError;
       
       if (axiosError.response) {
-        // 401/403 means invalid API key
         if (axiosError.response.status === 401 || axiosError.response.status === 403) {
           return null;
         }
-        // Other errors - log but return null
         logger.warn('Main service authentication error', {
           status: axiosError.response.status,
           feederId: 'unknown',
         });
       } else {
-        // Network/timeout error
         logger.error('Main service unavailable for authentication', {
           error: axiosError.message,
         });

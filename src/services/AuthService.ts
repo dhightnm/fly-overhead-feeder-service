@@ -6,7 +6,7 @@ import logger from '../utils/logger';
 class AuthService {
   generateApiKey(): string {
     const randomBytes = crypto.randomBytes(32);
-    return `sk_live_${randomBytes.toString('hex')}`;
+    return `fd_${randomBytes.toString('hex')}`;
   }
 
   generateFeederId(): string {
@@ -40,7 +40,7 @@ class AuthService {
 
   validateApiKeyFormat(apiKey: string | undefined): boolean {
     if (!apiKey || typeof apiKey !== 'string') return false;
-    return /^sk_live_[0-9a-fA-F]{64}$/.test(apiKey);
+    return /^(sk_live_|fd_)[0-9a-fA-F]{64}$/.test(apiKey);
   }
 }
 

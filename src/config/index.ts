@@ -25,9 +25,18 @@ const config: Config = {
   },
 
   // Rate Limiting
+  // Note: Data ingestion (/data endpoint) is UNLIMITED - feeders can submit as much data as needed
+  // Tier-based limits only apply to other API operations (stats, health, etc.)
   rateLimit: {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10),
+    // Tier-based rate limits for API operations (not data ingestion)
+    // These are now handled in generalLimiter with different limits
+    tiers: {
+      production: parseInt(process.env.RATE_LIMIT_PRODUCTION || '500', 10), // Legacy - not used for data ingestion
+      standard: parseInt(process.env.RATE_LIMIT_STANDARD || '1000', 10), // Legacy - not used for data ingestion
+      premium: parseInt(process.env.RATE_LIMIT_PREMIUM || '5000', 10), // Legacy - not used for data ingestion
+    },
   },
 
   // Data Processing
@@ -45,6 +54,9 @@ const config: Config = {
     statsEndpoint: process.env.MAIN_SERVICE_STATS_ENDPOINT || '/api/feeder/stats',
     lastSeenEndpoint: process.env.MAIN_SERVICE_LAST_SEEN_ENDPOINT || '/api/feeder/last-seen',
     authEndpoint: process.env.MAIN_SERVICE_AUTH_ENDPOINT || '/api/feeder/me',
+    // User authentication endpoints for account linking
+    loginEndpoint: process.env.MAIN_SERVICE_LOGIN_ENDPOINT || '/api/auth/login',
+    googleAuthEndpoint: process.env.MAIN_SERVICE_GOOGLE_AUTH_ENDPOINT || '/api/auth/google',
     timeout: parseInt(process.env.MAIN_SERVICE_TIMEOUT_MS || '5000', 10),
   },
 

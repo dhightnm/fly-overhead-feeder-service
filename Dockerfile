@@ -35,9 +35,14 @@ RUN npm ci --only=production && npm cache clean --force
 # Copy built application from builder stage
 COPY --from=builder /usr/src/app/dist ./dist
 
-# Create logs directory with proper permissions
-# Note: Logs directory will be mounted as volume, so we just ensure it exists
-RUN mkdir -p logs
+# Copy setup script so it can be served directly
+COPY --from=builder /usr/src/app/setup-public-feeder.sh ./setup-public-feeder.sh
+
+# Create logs directory and set permissions before switching to node user
+RUN mkdir -p logs && \
+    chown -R node:node logs && \
+    chown node:node setup-public-feeder.sh && \
+    chmod 644 setup-public-feeder.sh
 
 # Switch to non-root user for security
 USER node

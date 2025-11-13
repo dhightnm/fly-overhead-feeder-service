@@ -45,7 +45,7 @@ app.get('/setup.sh', (_req: Request, res: Response) => {
   try {
     const scriptPath = path.join(__dirname, '../setup-public-feeder.sh');
     const githubRawUrl = process.env.SETUP_SCRIPT_GITHUB_URL || 
-      'https://raw.githubusercontent.com/dhightnm/fly-overhead-feeder-service/main/setup-public-feeder.sh';
+      'https://raw.githubusercontent.com/dhightnm/fly-overhead-feeder-service/master/setup-public-feeder.sh';
     
     if (fs.existsSync(scriptPath)) {
       res.setHeader('Content-Type', 'text/x-sh');
@@ -58,7 +58,7 @@ app.get('/setup.sh', (_req: Request, res: Response) => {
     res.redirect(302, githubRawUrl);
   } catch (error) {
     const githubRawUrl = process.env.SETUP_SCRIPT_GITHUB_URL || 
-      'https://raw.githubusercontent.com/dhightnm/fly-overhead-feeder-service/main/setup-public-feeder.sh';
+      'https://raw.githubusercontent.com/dhightnm/fly-overhead-feeder-service/master/setup-public-feeder.sh';
     res.redirect(302, githubRawUrl);
   }
 });
