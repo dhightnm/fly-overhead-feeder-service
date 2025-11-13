@@ -93,7 +93,11 @@ else
     echo "   - http://127.0.0.1:8080/data.json"
     echo "   - http://localhost:8080/data/aircraft.json"
     echo ""
-    read -p "Enter dump1090 URL (or press Enter to use default): " CUSTOM_DUMP1090_URL
+    if [ -r /dev/tty ]; then
+        read -p "Enter dump1090 URL (or press Enter to use default): " CUSTOM_DUMP1090_URL < /dev/tty
+    else
+        read -p "Enter dump1090 URL (or press Enter to use default): " CUSTOM_DUMP1090_URL
+    fi
     if [ ! -z "$CUSTOM_DUMP1090_URL" ]; then
         DUMP1090_URL="$CUSTOM_DUMP1090_URL"
         echo "   Using: $DUMP1090_URL"
@@ -101,7 +105,11 @@ else
         echo "   Using default: $DUMP1090_URL"
     fi
     echo ""
-    read -p "Continue anyway? (y/N) " -n 1 -r
+    if [ -r /dev/tty ]; then
+        read -p "Continue anyway? (y/N) " -n 1 -r < /dev/tty
+    else
+        read -p "Continue anyway? (y/N) " -n 1 -r
+    fi
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
@@ -116,7 +124,11 @@ if systemctl is-active --quiet fly-overhead-feeder 2>/dev/null; then
     EXISTING_SERVICE=true
     echo "⚠️  Found existing fly-overhead-feeder service running"
     echo "   This setup will stop it and replace it with the new version"
-    read -p "Continue? (Y/n) " -n 1 -r
+    if [ -r /dev/tty ]; then
+        read -p "Continue? (Y/n) " -n 1 -r < /dev/tty
+    else
+        read -p "Continue? (Y/n) " -n 1 -r
+    fi
     echo
     if [[ $REPLY =~ ^[Nn]$ ]]; then
         exit 0
@@ -175,7 +187,11 @@ USE_EXISTING_KEY=false
 if [ "$EXISTING_SERVICE" = true ] || [ ! -z "$FOUND_API_KEY" ]; then
     if [ ! -z "$FOUND_API_KEY" ]; then
         echo "   💡 Found API key from old installation"
-        read -p "Use this existing API key? (Y/n) " -n 1 -r
+        if [ -r /dev/tty ]; then
+            read -p "Use this existing API key? (Y/n) " -n 1 -r < /dev/tty
+        else
+            read -p "Use this existing API key? (Y/n) " -n 1 -r
+        fi
         echo
         if [[ ! $REPLY =~ ^[Nn]$ ]]; then
             USE_EXISTING_KEY=true
@@ -184,11 +200,19 @@ if [ "$EXISTING_SERVICE" = true ] || [ ! -z "$FOUND_API_KEY" ]; then
     fi
     
     if [ "$USE_EXISTING_KEY" = false ]; then
-        read -p "Do you have an existing API key? (y/N) " -n 1 -r
+        if [ -r /dev/tty ]; then
+            read -p "Do you have an existing API key? (y/N) " -n 1 -r < /dev/tty
+        else
+            read -p "Do you have an existing API key? (y/N) " -n 1 -r
+        fi
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             USE_EXISTING_KEY=true
-            read -p "Enter your existing API key: " FEEDER_API_KEY
+            if [ -r /dev/tty ]; then
+                read -p "Enter your existing API key: " FEEDER_API_KEY < /dev/tty
+            else
+                read -p "Enter your existing API key: " FEEDER_API_KEY
+            fi
             if [ -z "$FEEDER_API_KEY" ]; then
                 echo "❌ API key cannot be empty"
                 exit 1
@@ -212,23 +236,38 @@ if [ "$EXISTING_SERVICE" = true ] || [ ! -z "$FOUND_API_KEY" ]; then
 fi
 
 if [ "$USE_EXISTING_KEY" = false ]; then
-    read -p "Feeder name: " FEEDER_NAME
-    read -p "Latitude (optional, press Enter to skip): " LATITUDE
-    read -p "Longitude (optional, press Enter to skip): " LONGITUDE
+    if [ -r /dev/tty ]; then
+        read -p "Feeder name: " FEEDER_NAME < /dev/tty
+        read -p "Latitude (optional, press Enter to skip): " LATITUDE < /dev/tty
+        read -p "Longitude (optional, press Enter to skip): " LONGITUDE < /dev/tty
+    else
+        read -p "Feeder name: " FEEDER_NAME
+        read -p "Latitude (optional, press Enter to skip): " LATITUDE
+        read -p "Longitude (optional, press Enter to skip): " LONGITUDE
+    fi
     
     # Optional: User account linking
     echo ""
     echo "🔗 User Account Linking (Optional)"
     echo "   Link this feeder to your Fly Overhead account to manage it in your dashboard."
-    read -p "Do you want to link this feeder to your account? (y/N) " -n 1 -r
+    if [ -r /dev/tty ]; then
+        read -p "Do you want to link this feeder to your account? (y/N) " -n 1 -r < /dev/tty
+    else
+        read -p "Do you want to link this feeder to your account? (y/N) " -n 1 -r
+    fi
     echo
     
     USER_JWT_TOKEN=""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo ""
         echo "   Please log in to your Fly Overhead account:"
-        read -p "   Email: " USER_EMAIL
-        read -sp "   Password: " USER_PASSWORD
+        if [ -r /dev/tty ]; then
+            read -p "   Email: " USER_EMAIL < /dev/tty
+            read -sp "   Password: " USER_PASSWORD < /dev/tty
+        else
+            read -p "   Email: " USER_EMAIL
+            read -sp "   Password: " USER_PASSWORD
+        fi
         echo ""
         
         # Attempt to login
