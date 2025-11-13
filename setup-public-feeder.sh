@@ -304,7 +304,7 @@ npm install @dhightnm/feeder-sdk axios 2>/dev/null || {
 
 echo ""
 echo "📝 Creating client script..."
-cat > ~/feeder-client.js << 'CLIENT_SCRIPT'
+cat > ~/feeder-client.js << 'CLIENT_SCRIPT' 2>/dev/null || true
 #!/usr/bin/env node
 
 const { FeederClient } = require('@dhightnm/feeder-sdk');
